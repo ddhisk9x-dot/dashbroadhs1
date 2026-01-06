@@ -51,7 +51,7 @@ function extractJson(text: string): any | null {
 }
 
 export async function POST(req: Request) {
-  const session = getSession();
+  const session = await getSession();
   if (!session || session.role !== "ADMIN") {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }

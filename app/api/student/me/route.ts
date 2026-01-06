@@ -5,7 +5,7 @@ import { getAppState } from "@/lib/supabaseServer";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const session = getSession();
+  const session = await getSession();
   if (!session || session.role !== "STUDENT" || !session.mhs) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

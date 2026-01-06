@@ -5,7 +5,7 @@ import { getAppState, setAppState } from "@/lib/supabaseServer";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const session = getSession();
+  const session = await getSession();
   if (!session || session.role !== "STUDENT" || !session.mhs) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

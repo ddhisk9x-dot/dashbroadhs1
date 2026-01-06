@@ -22,11 +22,14 @@ export function clearSession(res: NextResponse) {
   res.cookies.set(COOKIE_NAME, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0 });
 }
 
-export function getSession(): SessionPayload | null {
+export async function getSession(): Promise<SessionPayload | null> {
   const secret = process.env.APP_SECRET;
   if (!secret) return null;
-  const value = cookies().get(COOKIE_NAME)?.value;
+
+  const store = await cookies();
+  const value = store.get(COOKIE_NAME)?.value;
   if (!value) return null;
+
   const [b64, sig] = value.split(".");
   if (!b64 || !sig) return null;
   const raw = Buffer.from(b64, "base64").toString("utf-8");
