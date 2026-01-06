@@ -6,6 +6,7 @@ import { User, Role, Student, AIReport, StudyAction } from '../types';
 import { Lock, User as UserIcon, ArrowRight, Loader2 } from 'lucide-react';
 import { api } from '../services/clientApi';
 
+
 // --- Inline Login Component ---
 const LoginScreen = ({ onLogin, loading }: { onLogin: (u: string, p: string) => void, loading: boolean }) => {
   const [username, setUsername] = useState('');
@@ -20,14 +21,6 @@ const LoginScreen = ({ onLogin, loading }: { onLogin: (u: string, p: string) => 
         return;
     }
     onLogin(username, password);
-  };
-
-
-  const handleLogout = async () => {
-    try { await api.logout(); } catch {}
-    setUser(null);
-    setCurrentStudent(null);
-    setStudents([]);
   };
 
   return (
@@ -97,6 +90,12 @@ const DashboardApp: React.FC = () => {
   const [students, setStudents] = useState<Student[]>([]); // Teacher View Data
   const [currentStudent, setCurrentStudent] = useState<Student | null>(null); // Student View Data
   const [isLoading, setIsLoading] = useState(false);
+  const handleLogout = async () => {
+    try { await api.logout(); } catch {}
+    setUser(null);
+    setCurrentStudent(null);
+    setStudents([]);
+  };
 
   // Initial Load Check (Could verify session token here in robust app, but we stick to state for now)
 
@@ -133,7 +132,7 @@ const DashboardApp: React.FC = () => {
         
         if (success && loggedInUser) {
             setUser(loggedInUser);
-            if (loggedInUser.role === Role.TEACHER) {
+            if (loggedInUser.role === Role.admin) {
                 await loadTeacherData();
             } else {
                 await loadStudentData(loggedInUser.username);
