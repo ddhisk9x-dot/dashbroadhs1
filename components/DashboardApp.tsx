@@ -132,7 +132,7 @@ const DashboardApp: React.FC = () => {
         
         if (success && loggedInUser) {
             setUser(loggedInUser);
-            if (loggedInUser.role === Role.admin) {
+            if (loggedInUser.role === Role.ADMIN) {
                 await loadTeacherData();
             } else {
                 await loadStudentData(loggedInUser.username);
