@@ -18,7 +18,9 @@ const TeacherView: React.FC<TeacherViewProps> = ({ students, onImportData, onUpd
   const [viewingMhs, setViewingMhs] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'report' | 'tracking'>('report');
-  
+  const [selectedMhs, setSelectedMhs] = useState<Set<string>>(new Set());
+const [bulkRunning, setBulkRunning] = useState(false);
+
   // Bulk Generation State
   const [bulkProgress, setBulkProgress] = useState<{ current: number, total: number, currentName: string } | null>(null);
   
@@ -157,7 +159,12 @@ const TeacherView: React.FC<TeacherViewProps> = ({ students, onImportData, onUpd
 
   const handleBulkGenerate = async () => {
     // Determine which students to process: currently filtered students
-    const targets = filteredStudents;
+    const targets = filteredStudents.filter(s => selectedMhs.has(s.mhs));
+if (targets.length === 0) {
+  alert("Bạn chưa chọn học sinh nào.");
+  return;
+}
+
     if (targets.length === 0) return;
 
     if (!confirm(`Bạn có chắc muốn tạo báo cáo AI cho ${targets.length} học sinh đang hiển thị không? Việc này sẽ mất một khoảng thời gian.`)) {
@@ -280,92 +287,181 @@ const TeacherView: React.FC<TeacherViewProps> = ({ students, onImportData, onUpd
         <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50/50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
-                  <th className="px-6 py-5">MHS</th>
-                  <th className="px-6 py-5">Họ và Tên</th>
-                  <th className="px-6 py-5">Lớp</th>
-                  <th className="px-6 py-5">Điểm TB (Gần nhất)</th>
-                  <th className="px-6 py-5">Rủi ro</th>
-                  <th className="px-6 py-5">Tiến độ Tick</th>
-                  <th className="px-6 py-5 text-right">Hành động</th>
-                </tr>
-              </thead>
+             <thead>
+  <tr className="bg-slate-50/50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
+    {/* ✅ CỘT CHECKBOX CHỌN TẤT CẢ */}
+    <th className="px-6 py-5 w-10">
+      <input
+        type="checkbox"
+        checked={
+          filteredStudents.length > 0 &&
+          filteredStudents.every((s) => selectedMhs.has(s.mhs))
+        }
+        onChange={(e) => {
+          if (e.target.checked) {
+            setSelectedMhs(new Set(filteredStudents.map((s) => s.mhs)));
+          } else {
+            setSelectedMhs(new Set());
+          }
+        }}
+        title="Chọn/Bỏ chọn tất cả học sinh đang hiển thị"
+      />
+    </th>
+
+    <th className="px-6 py-5">MHS</th>
+    <th className="px-6 py-5">Họ và Tên</th>
+    <th className="px-6 py-5">Lớp</th>
+    <th className="px-6 py-5">Điểm TB (Gần nhất)</th>
+    <th className="px-6 py-5">Rủi ro</th>
+    <th className="px-6 py-5">Tiến độ Tick</th>
+    <th className="px-6 py-5 text-right">Hành động</th>
+  </tr>
+</thead>
+
               <tbody className="divide-y divide-slate-100">
-                {filteredStudents.length === 0 ? (
-                    <tr>
-                        <td colSpan={7} className="px-6 py-10 text-center text-slate-400 italic">Không tìm thấy học sinh nào. Hãy nhập file Excel.</td>
-                    </tr>
-                ) : filteredStudents.map(student => {
-                  const lastScore = student.scores[student.scores.length - 1];
-                  const scores = [lastScore?.math, lastScore?.lit, lastScore?.eng].filter(s => s !== null && s !== undefined) as number[];
-                  const avg = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : 'N/A';
-                  
-                  const totalTicks = student.activeActions.reduce((acc, act) => acc + act.ticks.filter(t => t.completed).length, 0);
-                  
-                  return (
-                    <tr key={student.mhs} className="hover:bg-indigo-50/30 transition-colors duration-200 group">
-                      <td className="px-6 py-4 text-sm font-mono text-slate-500 bg-transparent">{student.mhs}</td>
-                      <td className="px-6 py-4 text-sm font-semibold text-slate-800">{student.name}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{student.class}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">
-                        <span className={`px-2.5 py-1 rounded-lg font-bold text-xs ${
-                          avg === 'N/A' ? 'bg-slate-100 text-slate-500' : Number(avg) >= 8 ? 'bg-emerald-100 text-emerald-700' : Number(avg) >= 5 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
-                        }`}>
-                          {avg}
-                        </span>
-                        {lastScore && <span className="text-[10px] text-slate-400 ml-2">({lastScore.month})</span>}
-                      </td>
-                      <td className="px-6 py-4">
-                        {student.aiReport ? (
-                          <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${
-                            student.aiReport.riskLevel === 'Cao' ? 'bg-red-50 text-red-600 border-red-100' :
-                            student.aiReport.riskLevel === 'Trung bình' ? 'bg-orange-50 text-orange-600 border-orange-100' :
-                            'bg-emerald-50 text-emerald-600 border-emerald-100'
-                          }`}>
-                            {student.aiReport.riskLevel === 'Cao' && <AlertTriangle size={12} />}
-                            {student.aiReport.riskLevel}
-                          </span>
-                        ) : (
-                          <span className="text-slate-300 text-xs italic">--</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-600">
-                        {student.activeActions.length > 0 ? (
-                           <div className="w-full bg-slate-100 rounded-full h-2 max-w-[100px]" title={`${totalTicks} nhiệm vụ hoàn thành`}>
-                              <div className="bg-indigo-500 h-2 rounded-full transition-all duration-500" style={{ width: `${Math.min(totalTicks * 5, 100)}%` }}></div>
-                           </div>
-                        ) : (
-                          <span className="text-slate-400">-</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                           {loadingMhs === student.mhs ? (
-                             <button disabled className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold flex items-center gap-2">
-                               <Loader2 size={14} className="animate-spin" />
-                             </button>
-                           ) : (
-                             <button 
-                               onClick={() => handleGenerateAI(student)}
-                               className="px-4 py-2 bg-white border border-indigo-200 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 text-indigo-600 rounded-xl text-xs font-bold transition-all shadow-sm hover:shadow-md"
-                            >
-                               {student.aiReport ? 'Tạo lại' : 'Tạo'}
-                             </button>
-                           )}
-                           <button 
-                             onClick={() => { setViewingMhs(student.mhs); setActiveTab('report'); }}
-                             className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
-                             title="Xem chi tiết"
-                           >
-                             <FileText size={20} />
-                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
+  {filteredStudents.length === 0 ? (
+    <tr>
+      {/* ✅ đổi colSpan 7 -> 8 vì thêm 1 cột checkbox */}
+      <td colSpan={8} className="px-6 py-10 text-center text-slate-400 italic">
+        Không tìm thấy học sinh nào. Hãy nhập file Excel.
+      </td>
+    </tr>
+  ) : (
+    filteredStudents.map((student) => {
+      const lastScore = student.scores[student.scores.length - 1];
+      const scores = [lastScore?.math, lastScore?.lit, lastScore?.eng].filter(
+        (s) => s !== null && s !== undefined
+      ) as number[];
+      const avg =
+        scores.length > 0
+          ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
+          : "N/A";
+
+      const totalTicks = student.activeActions.reduce(
+        (acc, act) => acc + act.ticks.filter((t) => t.completed).length,
+        0
+      );
+
+      return (
+        <tr
+          key={student.mhs}
+          className="hover:bg-indigo-50/30 transition-colors duration-200 group"
+        >
+          {/* ✅ CỘT CHECKBOX CHỌN TỪNG HỌC SINH */}
+          <td className="px-6 py-4">
+            <input
+              type="checkbox"
+              checked={selectedMhs.has(student.mhs)}
+              onChange={(e) => {
+                setSelectedMhs((prev) => {
+                  const next = new Set(prev);
+                  if (e.target.checked) next.add(student.mhs);
+                  else next.delete(student.mhs);
+                  return next;
+                });
+              }}
+            />
+          </td>
+
+          <td className="px-6 py-4 text-sm font-mono text-slate-500 bg-transparent">
+            {student.mhs}
+          </td>
+          <td className="px-6 py-4 text-sm font-semibold text-slate-800">
+            {student.name}
+          </td>
+          <td className="px-6 py-4 text-sm text-slate-600">{student.class}</td>
+
+          <td className="px-6 py-4 text-sm text-slate-600">
+            <span
+              className={`px-2.5 py-1 rounded-lg font-bold text-xs ${
+                avg === "N/A"
+                  ? "bg-slate-100 text-slate-500"
+                  : Number(avg) >= 8
+                  ? "bg-emerald-100 text-emerald-700"
+                  : Number(avg) >= 5
+                  ? "bg-amber-100 text-amber-700"
+                  : "bg-rose-100 text-rose-700"
+              }`}
+            >
+              {avg}
+            </span>
+            {lastScore && (
+              <span className="text-[10px] text-slate-400 ml-2">
+                ({lastScore.month})
+              </span>
+            )}
+          </td>
+
+          <td className="px-6 py-4">
+            {student.aiReport ? (
+              <span
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${
+                  student.aiReport.riskLevel === "Cao"
+                    ? "bg-red-50 text-red-600 border-red-100"
+                    : student.aiReport.riskLevel === "Trung bình"
+                    ? "bg-orange-50 text-orange-600 border-orange-100"
+                    : "bg-emerald-50 text-emerald-600 border-emerald-100"
+                }`}
+              >
+                {student.aiReport.riskLevel}
+              </span>
+            ) : (
+              <span className="text-slate-300 text-xs italic">--</span>
+            )}
+          </td>
+
+          <td className="px-6 py-4 text-sm text-slate-600">
+            {student.activeActions.length > 0 ? (
+              <div
+                className="w-full bg-slate-100 rounded-full h-2 max-w-[100px]"
+                title={`${totalTicks} nhiệm vụ hoàn thành`}
+              >
+                <div
+                  className="bg-indigo-500 h-2 rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(totalTicks * 5, 100)}%` }}
+                ></div>
+              </div>
+            ) : (
+              <span className="text-slate-400">-</span>
+            )}
+          </td>
+
+          <td className="px-6 py-4 text-right">
+            <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              {loadingMhs === student.mhs ? (
+                <button
+                  disabled
+                  className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold flex items-center gap-2"
+                >
+                  <Loader2 size={14} className="animate-spin" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleGenerateAI(student)}
+                  className="px-4 py-2 bg-white border border-indigo-200 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 text-indigo-600 rounded-xl text-xs font-bold transition-all shadow-sm hover:shadow-md"
+                >
+                  {student.aiReport ? "Tạo lại" : "Tạo"}
+                </button>
+              )}
+
+              <button
+                onClick={() => {
+                  setViewingMhs(student.mhs);
+                  setActiveTab("report");
+                }}
+                className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                title="Xem chi tiết"
+              >
+                <FileText size={20} />
+              </button>
+            </div>
+          </td>
+        </tr>
+      );
+    })
+  )}
+</tbody>
+
             </table>
           </div>
         </div>
