@@ -70,47 +70,112 @@ function getDatesInMonth(monthYYYYMM: string) {
   }
   return out;
 }
-function uniqMonthsFromTicksAndScores(st?: Student) {
+function isMonthKey(m: any) {
+  return /^\d{4}-\d{2}$/.test(String(m || "").trim());
+}
+function nextMonthKey(monthKey: string): string {
+  const mk = String(monthKey || "").trim();
+  if (!isMonthKey(mk)) return isoMonth(new Date());
+  const [yStr, mStr] = mk.split("-");
+  let y = parseInt(yStr, 10);
+  let m = parseInt(mStr, 10);
+  m += 1;
+  if (m === 13) {
+    m = 1;
+    y += 1;
+  }
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}`;
+}
+
+function latestScoreMonth(st?: Student) {
+  const scores = Array.isArray(st?.scores) ? st!.scores : [];
+  const last = scores.length ? (scores[scores.length - 1] as any) : null;
+  const mk = String(last?.month || "").trim();
+  return isMonthKey(mk) ? mk : isoMonth(new Date());
+}
+
+function inferredTaskMonth(st?: Student) {
+  // điểm tháng N -> nhiệm vụ tháng N+1
+  return nextMonthKey(latestScoreMonth(st));
+}
+
+function uniqMonthsFromStudent(st?: Student) {
   const set = new Set<string>();
+
+  // months from scores (N) and task months (N+1)
   (st?.scores || []).forEach((s) => {
     const mm = String((s as any)?.month || "").trim();
-    if (/^\d{4}-\d{2}$/.test(mm)) set.add(mm);
+    if (isMonthKey(mm)) {
+      set.add(mm);
+      set.add(nextMonthKey(mm));
+    }
   });
+
+  // months from activeActions ticks (legacy)
   (st?.activeActions || []).forEach((a: any) => {
     (a?.ticks || []).forEach((t: any) => {
       const d = String(t?.date || "").slice(0, 7);
-      if (/^\d{4}-\d{2}$/.test(d)) set.add(d);
+      if (isMonthKey(d)) set.add(d);
     });
   });
 
-  // nếu đã có actionsByMonth (mới) thì cũng gom tháng
+  // months from actionsByMonth keys + their ticks
   const abm = (st as any)?.actionsByMonth;
   if (abm && typeof abm === "object") {
     Object.keys(abm).forEach((k) => {
       const kk = String(k || "").trim();
-      if (/^\d{4}-\d{2}$/.test(kk)) set.add(kk);
+      if (isMonthKey(kk)) set.add(kk);
+      const list = abm[k];
+      if (Array.isArray(list)) {
+        list.forEach((a: any) => {
+          (a?.ticks || []).forEach((t: any) => {
+            const d = String(t?.date || "").slice(0, 7);
+            if (isMonthKey(d)) set.add(d);
+          });
+        });
+      }
     });
   }
+
+  // always include current inferred task month
+  if (st) set.add(inferredTaskMonth(st));
 
   const arr = Array.from(set);
   arr.sort();
   return arr;
 }
-function latestMonthFromScores(st?: Student) {
-  const scores = Array.isArray(st?.scores) ? st!.scores : [];
-  const last = scores.length ? (scores[scores.length - 1] as any) : null;
-  const mk = String(last?.month || "").trim();
-  return /^\d{4}-\d{2}$/.test(mk) ? mk : isoMonth(new Date());
-}
+
 function safeActionsByMonth(student?: Student): Record<string, StudyAction[]> {
   if (!student) return {};
   const abm = (student as any)?.actionsByMonth;
   if (abm && typeof abm === "object") return abm as Record<string, StudyAction[]>;
 
-  // migrate tạm thời: activeActions (cũ) -> gán vào tháng gần nhất
-  const latest = latestMonthFromScores(student);
-  const aa = Array.isArray((student as any)?.activeActions) ? ((student as any).activeActions as StudyAction[]) : [];
-  return { [latest]: aa };
+  // migrate tạm thời: activeActions (cũ) -> gán vào THÁNG NHIỆM VỤ (N+1)
+  const taskMonth = inferredTaskMonth(student);
+  const aa = Array.isArray((student as any)?.activeActions)
+    ? ((student as any).activeActions as StudyAction[])
+    : [];
+  return { [taskMonth]: aa };
+}
+
+function buildTickMap(action: any) {
+  const m = new Map<string, boolean>();
+  (action?.ticks || []).forEach((t: any) => m.set(String(t?.date), !!t?.completed));
+  return m;
+}
+
+async function persistReportAndActions(mhs: string, report: AIReport, actions: StudyAction[], monthKey: string) {
+  // NOTE: nếu route của bạn khác "/api/admin/save-report" thì đổi lại đúng path
+  const res = await fetch("/api/admin/save-report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mhs, report, actions, monthKey }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.error || "Save report failed");
+  }
+  return data;
 }
 
 const TeacherView: React.FC<TeacherViewProps> = ({
@@ -148,9 +213,11 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
   useEffect(() => {
     if (!viewingStudent) return;
-    const months = uniqMonthsFromTicksAndScores(viewingStudent);
-    const latest = months.length ? months[months.length - 1] : latestMonthFromScores(viewingStudent);
-    setTrackingMonth(latest);
+    const months = uniqMonthsFromStudent(viewingStudent);
+    // default: tháng nhiệm vụ hiện hành (N+1)
+    const def = inferredTaskMonth(viewingStudent);
+    const latest = months.length ? months[months.length - 1] : def;
+    setTrackingMonth(months.includes(def) ? def : latest);
   }, [viewingStudent?.mhs]);
 
   // ✅ Sync UI state (NO prompt)
@@ -183,37 +250,49 @@ const TeacherView: React.FC<TeacherViewProps> = ({
     }
   }, [viewingStudent]);
 
-  // ✅ dates + actions to render (theo tháng = nhiệm vụ tháng đó)
-  const trackingDates = useMemo(() => {
-    if (trackingMode === "7") return getLastNDays(7);
-    if (trackingMode === "30") return getLastNDays(30);
-    if (trackingMode === "90") return getLastNDays(90);
-    return getDatesInMonth(trackingMonth);
-  }, [trackingMode, trackingMonth]);
+  const actionsByMonth = useMemo(
+    () => safeActionsByMonth(viewingStudent),
+    [viewingStudent?.mhs, viewingStudent?.activeActions, viewingStudent?.scores, (viewingStudent as any)?.actionsByMonth]
+  );
 
-  const actionsByMonth = useMemo(() => safeActionsByMonth(viewingStudent), [viewingStudent?.mhs, viewingStudent?.activeActions, viewingStudent?.scores]);
   const availableMonthsForStudent = useMemo(() => {
-    const months = uniqMonthsFromTicksAndScores(viewingStudent);
+    const months = uniqMonthsFromStudent(viewingStudent);
     if (!months.length) return [isoMonth(new Date())];
     return months;
-  }, [viewingStudent?.mhs]);
+  }, [viewingStudent?.mhs, (viewingStudent as any)?.actionsByMonth, viewingStudent?.scores, viewingStudent?.activeActions]);
+
+  const taskMonthForViewingStudent = useMemo(() => {
+    if (!viewingStudent) return isoMonth(new Date());
+    return inferredTaskMonth(viewingStudent);
+  }, [viewingStudent?.mhs, viewingStudent?.scores]);
 
   const monthForActions = useMemo(() => {
     if (trackingMode === "month") return trackingMonth;
-    // range mode: dùng tháng gần nhất (để theo dõi nhiệm vụ hiện hành)
-    const months = availableMonthsForStudent.slice().sort();
-    return months.length ? months[months.length - 1] : trackingMonth;
-  }, [trackingMode, trackingMonth, availableMonthsForStudent]);
+    // range mode: luôn theo "tháng nhiệm vụ hiện hành" (N+1)
+    return taskMonthForViewingStudent;
+  }, [trackingMode, trackingMonth, taskMonthForViewingStudent]);
+
+  // ✅ dates to render
+  const trackingDates = useMemo(() => {
+    if (trackingMode === "month") return getDatesInMonth(trackingMonth);
+
+    const n = trackingMode === "7" ? 7 : trackingMode === "30" ? 30 : 90;
+    // range mode: chỉ lấy ngày thuộc đúng tháng nhiệm vụ để đếm không lệch tháng
+    return getLastNDays(n).filter((d) => d.slice(0, 7) === monthForActions);
+  }, [trackingMode, trackingMonth, monthForActions]);
 
   const actionsForView = useMemo(() => {
     const acts = actionsByMonth?.[monthForActions];
     if (Array.isArray(acts)) return acts;
+
     // fallback: activeActions cũ
-    return Array.isArray((viewingStudent as any)?.activeActions) ? ((viewingStudent as any).activeActions as StudyAction[]) : [];
+    return Array.isArray((viewingStudent as any)?.activeActions)
+      ? ((viewingStudent as any).activeActions as StudyAction[])
+      : [];
   }, [actionsByMonth, monthForActions, viewingStudent?.mhs]);
 
   const trackingTitle = useMemo(() => {
-    if (trackingMode === "month") return `Tiến độ Thói quen (Tháng ${trackingMonth})`;
+    if (trackingMode === "month") return `Tiến độ Thói quen (Tháng ${trackingMonth}) • Nhiệm vụ tháng ${trackingMonth}`;
     if (trackingMode === "30") return `Tiến độ Thói quen (30 ngày qua) • Nhiệm vụ tháng ${monthForActions}`;
     if (trackingMode === "90") return `Tiến độ Thói quen (90 ngày qua) • Nhiệm vụ tháng ${monthForActions}`;
     return `Tiến độ Thói quen (7 ngày qua) • Nhiệm vụ tháng ${monthForActions}`;
@@ -274,9 +353,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
       const newStudentList = Array.from(studentMap.values());
       onImportData(newStudentList);
-      alert(
-        `Nhập thành công! Đã xử lý ${newStudentList.length} học sinh qua ${wb.SheetNames.length} sheet tháng.`
-      );
+      alert(`Nhập thành công! Đã xử lý ${newStudentList.length} học sinh qua ${wb.SheetNames.length} sheet tháng.`);
     };
     reader.readAsBinaryString(file);
   };
@@ -285,15 +362,24 @@ const TeacherView: React.FC<TeacherViewProps> = ({
     setLoadingMhs(student.mhs);
     try {
       const report = await generateStudentReport(student);
+
+      const monthKey = inferredTaskMonth(student);
+
+      // tạo list actions local (server sẽ tự preserve theo monthKey khi bạn lưu)
       const newActions: StudyAction[] = (report.actions || []).map((a: any, idx: number) => ({
         id: `${student.mhs}-${Date.now()}-${idx}`,
         description: a.description,
         frequency: a.frequency,
         ticks: [],
       }));
+
+      // persist to server with monthKey (actionsByMonth[monthKey])
+      await persistReportAndActions(student.mhs, report, newActions, monthKey);
+
+      // update local UI
       onUpdateStudentReport(student.mhs, report, newActions);
-    } catch {
-      alert("Không thể tạo báo cáo. Vui lòng kiểm tra API Key.");
+    } catch (e: any) {
+      alert(e?.message || "Không thể tạo báo cáo. Vui lòng kiểm tra API Key.");
     } finally {
       setLoadingMhs(null);
     }
@@ -318,12 +404,15 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
       try {
         const report = await generateStudentReport(student);
+        const monthKey = inferredTaskMonth(student);
         const newActions: StudyAction[] = (report.actions || []).map((a: any, idx: number) => ({
           id: `${student.mhs}-${Date.now()}-${idx}`,
           description: a.description,
           frequency: a.frequency,
           ticks: [],
         }));
+
+        await persistReportAndActions(student.mhs, report, newActions, monthKey);
         onUpdateStudentReport(student.mhs, report, newActions);
       } catch (err) {
         console.error(`Failed to generate for ${student.mhs}`, err);
@@ -356,16 +445,14 @@ const TeacherView: React.FC<TeacherViewProps> = ({
       const monthsSynced = data.monthsSynced ?? [];
       const monthsAll = data.monthsAll ?? [];
 
-      // Có tháng mới => done
       if (monthsSynced.length > 0) {
         alert(`Đồng bộ xong: ${data.students ?? 0} HS. Tháng mới: ${monthsSynced.join(", ")}`);
         window.location.reload();
         return;
       }
 
-      // 0 tháng mới => mở modal chọn tháng để sync lại
       setSyncMonthsAll(monthsAll);
-      setSyncSelectedMonths(new Set(monthsAll)); // mặc định chọn tất cả để dễ bấm
+      setSyncSelectedMonths(new Set(monthsAll));
       setSyncMonthSearch("");
       setSyncHint("Không có tháng mới. Bạn có thể chọn tháng để đồng bộ lại.");
       setSyncModalOpen(true);
@@ -425,16 +512,25 @@ const TeacherView: React.FC<TeacherViewProps> = ({
     }
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!viewingStudent || !viewingStudent.aiReport) return;
+
     const updatedReport: AIReport = {
       ...viewingStudent.aiReport,
       overview: editForm.overview,
       messageToStudent: editForm.messageToStudent,
       teacherNotes: editForm.teacherNotes,
     };
-    onUpdateStudentReport(viewingStudent.mhs, updatedReport, viewingStudent.activeActions);
-    setIsEditing(false);
+
+    const monthKey = inferredTaskMonth(viewingStudent);
+
+    try {
+      await persistReportAndActions(viewingStudent.mhs, updatedReport, actionsForView, monthKey);
+      onUpdateStudentReport(viewingStudent.mhs, updatedReport, actionsForView);
+      setIsEditing(false);
+    } catch (e: any) {
+      alert(e?.message || "Lưu thất bại");
+    }
   };
 
   return (
@@ -536,9 +632,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                     </button>
                   ))}
                 {syncSelectedMonths.size > 12 && (
-                  <span className="text-xs text-slate-500 px-2 py-1.5">
-                    +{syncSelectedMonths.size - 12} tháng nữa
-                  </span>
+                  <span className="text-xs text-slate-500 px-2 py-1.5">+{syncSelectedMonths.size - 12} tháng nữa</span>
                 )}
               </div>
 
@@ -574,8 +668,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               </div>
 
               <div className="text-xs text-slate-500">
-                Đã chọn: <span className="font-bold text-slate-700">{syncSelectedMonths.size}</span> /{" "}
-                {syncMonthsAll.length} tháng
+                Đã chọn: <span className="font-bold text-slate-700">{syncSelectedMonths.size}</span> / {syncMonthsAll.length} tháng
               </div>
             </div>
 
@@ -704,10 +797,21 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                         ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
                         : "N/A";
 
-                    const totalTicks = (student.activeActions ?? []).reduce(
-                      (acc, act: any) => acc + (act.ticks ?? []).filter((t: any) => t.completed).length,
-                      0
-                    );
+                    const taskMonth = inferredTaskMonth(student);
+                    const abm = safeActionsByMonth(student);
+                    const acts = Array.isArray((student as any)?.actionsByMonth?.[taskMonth])
+                      ? ((student as any).actionsByMonth[taskMonth] as any[])
+                      : Array.isArray(abm?.[taskMonth])
+                      ? (abm[taskMonth] as any[])
+                      : Array.isArray(student.activeActions)
+                      ? (student.activeActions as any[])
+                      : [];
+
+                    const totalTicksInTaskMonth = acts.reduce((acc, act: any) => {
+                      const ticks = Array.isArray(act?.ticks) ? act.ticks : [];
+                      const done = ticks.filter((t: any) => t?.completed && String(t?.date || "").slice(0, 7) === taskMonth).length;
+                      return acc + done;
+                    }, 0);
 
                     return (
                       <tr key={student.mhs} className="hover:bg-indigo-50/30 transition-colors duration-200 group">
@@ -772,11 +876,14 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                         </td>
 
                         <td className="px-6 py-4 text-sm text-slate-600">
-                          {(student.activeActions ?? []).length > 0 ? (
-                            <div className="w-full bg-slate-100 rounded-full h-2 max-w-[100px]" title={`${totalTicks} nhiệm vụ hoàn thành`}>
+                          {acts.length > 0 ? (
+                            <div
+                              className="w-full bg-slate-100 rounded-full h-2 max-w-[100px]"
+                              title={`${totalTicksInTaskMonth} tick hoàn thành • tháng nhiệm vụ ${taskMonth}`}
+                            >
                               <div
                                 className="bg-indigo-500 h-2 rounded-full transition-all duration-500"
-                                style={{ width: `${Math.min(totalTicks * 5, 100)}%` }}
+                                style={{ width: `${Math.min(totalTicksInTaskMonth * 5, 100)}%` }}
                               />
                             </div>
                           ) : (
@@ -853,7 +960,9 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               <button
                 onClick={() => setActiveTab("report")}
                 className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${
-                  activeTab === "report" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"
+                  activeTab === "report"
+                    ? "border-indigo-600 text-indigo-600"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
                 }`}
                 type="button"
               >
@@ -865,7 +974,9 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               <button
                 onClick={() => setActiveTab("tracking")}
                 className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${
-                  activeTab === "tracking" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"
+                  activeTab === "tracking"
+                    ? "border-indigo-600 text-indigo-600"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
                 }`}
                 type="button"
               >
@@ -985,7 +1096,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                   </div>
                 ))}
 
-              {/* ✅ TAB 2: TRACKING (7/30/90 + Theo tháng = nhiệm vụ tháng đó) */}
+              {/* ✅ TAB 2: TRACKING */}
               {activeTab === "tracking" && (
                 <div>
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
@@ -1057,56 +1168,58 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                     </div>
                   ) : (
                     <div className="space-y-6">
-                      {actionsForView.map((action: any) => (
-                        <div key={action.id} className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
-                          <div className="flex justify-between items-start mb-4">
-                            <div>
-                              <h4 className="font-semibold text-slate-700">{action.description}</h4>
-                              <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded mt-1 inline-block">
-                                {action.frequency}
-                              </span>
-                            </div>
-                            <div className="text-right">
-                              <span className="text-2xl font-bold text-indigo-600">
-                                {(action.ticks ?? []).filter((t: any) => t.completed).length}
-                              </span>
-                              <p className="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Tổng Tick</p>
-                            </div>
-                          </div>
+                      {actionsForView.map((action: any) => {
+                        const dateSet = new Set(trackingDates);
+                        const tickMap = buildTickMap(action);
+                        const countDone = trackingDates.reduce((acc, d) => acc + (tickMap.get(d) ? 1 : 0), 0);
 
-                          <div className="overflow-x-auto">
-                            <div className="min-w-[700px] flex items-center justify-between gap-2">
-                              {trackingDates.map((dateString) => {
-                                const isDone = (action.ticks ?? []).some(
-                                  (t: any) => t.date === dateString && t.completed
-                                );
-                                const dateObj = new Date(dateString);
-                                const dayLabel = `${dateObj.getDate()}/${dateObj.getMonth() + 1}`;
+                        return (
+                          <div key={action.id} className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
+                            <div className="flex justify-between items-start mb-4">
+                              <div>
+                                <h4 className="font-semibold text-slate-700">{action.description}</h4>
+                                <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded mt-1 inline-block">
+                                  {action.frequency}
+                                </span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-2xl font-bold text-indigo-600">{countDone}</span>
+                                <p className="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Tick (trong kỳ)</p>
+                              </div>
+                            </div>
 
-                                return (
-                                  <div key={dateString} className="flex flex-col items-center gap-2 flex-1">
-                                    <div
-                                      className={`w-full h-2 rounded-full transition-all duration-500 ${
-                                        isDone ? "bg-emerald-500" : "bg-slate-100"
-                                      }`}
-                                    />
-                                    <div
-                                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-medium transition-all ${
-                                        isDone
-                                          ? "bg-emerald-100 text-emerald-700"
-                                          : "bg-slate-50 text-slate-400 border border-slate-100"
-                                      }`}
-                                      title={dateString}
-                                    >
-                                      {isDone ? <Check size={16} /> : <span className="text-[10px]">{dayLabel}</span>}
+                            <div className="overflow-x-auto">
+                              <div className="min-w-[700px] flex items-center justify-between gap-2">
+                                {trackingDates.map((dateString) => {
+                                  const isDone = !!tickMap.get(dateString);
+                                  const dateObj = new Date(dateString);
+                                  const dayLabel = `${dateObj.getDate()}/${dateObj.getMonth() + 1}`;
+
+                                  return (
+                                    <div key={dateString} className="flex flex-col items-center gap-2 flex-1">
+                                      <div
+                                        className={`w-full h-2 rounded-full transition-all duration-500 ${
+                                          isDone ? "bg-emerald-500" : "bg-slate-100"
+                                        }`}
+                                      />
+                                      <div
+                                        className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-medium transition-all ${
+                                          isDone
+                                            ? "bg-emerald-100 text-emerald-700"
+                                            : "bg-slate-50 text-slate-400 border border-slate-100"
+                                        }`}
+                                        title={dateString}
+                                      >
+                                        {isDone ? <Check size={16} /> : <span className="text-[10px]">{dayLabel}</span>}
+                                      </div>
                                     </div>
-                                  </div>
-                                );
-                              })}
+                                  );
+                                })}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
