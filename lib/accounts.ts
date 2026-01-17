@@ -1,3 +1,4 @@
+// lib/accounts.ts
 import { createClient } from "@supabase/supabase-js";
 
 function parseCSV(text: string): string[][] {
@@ -10,18 +11,50 @@ function parseCSV(text: string): string[][] {
     const ch = text[i];
 
     if (ch === '"') {
-      if (inQuotes && text[i + 1] === '"') { cur += '"'; i++; }
-      else inQuotes = !inQuotes;
+      if (inQuotes && text[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
       continue;
     }
 
-    if (!inQuotes && ch === ",") { row.push(cur); cur = ""; continue; }
-    if (!inQuotes && ch === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; continue; }
+    if (!inQuotes && ch === ",") {
+      row.push(cur);
+      cur = "";
+      continue;
+    }
+
+    if (!inQuotes && ch === "\n") {
+      row.push(cur);
+      rows.push(row);
+      row = [];
+      cur = "";
+      continue;
+    }
+
     if (ch !== "\r") cur += ch;
   }
 
-  if (cur.length || row.length) { row.push(cur); rows.push(row); }
+  if (cur.length || row.length) {
+    row.push(cur);
+    rows.push(row);
+  }
+
   return rows;
+}
+
+function stripDiacritics(s: string) {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function normKey(v: any): string {
+  return stripDiacritics(String(v ?? ""))
+    .replace(/\uFEFF/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
 }
 
 function h(v: any) {
@@ -44,16 +77,19 @@ export async function fetchAccountsFromSheet(): Promise<Map<string, AccountRow>>
   if (!resp.ok) throw new Error(`Fetch accounts CSV failed: ${resp.status}`);
 
   const text = await resp.text();
-  if (text.slice(0, 300).toLowerCase().includes("<html")) {
+  const contentType = resp.headers.get("content-type") || "";
+  if (contentType.includes("text/html") || text.slice(0, 400).toLowerCase().includes("<html")) {
     throw new Error("ACCOUNTS_CSV_URL is not CSV (got HTML). Use export?format=csv&gid=...");
   }
 
   const rows = parseCSV(text);
   if (rows.length < 2) return new Map();
 
-  const header = rows[0].map(h);
+  const headerRaw = rows[0] ?? [];
+  const header = headerRaw.map(normKey);
+
   const idxMhs = header.indexOf("MHS");
-  const idxName = header.indexOf("Họ tên HS") >= 0 ? header.indexOf("Họ tên HS") : header.indexOf("HỌ TÊN HS");
+  const idxName = header.indexOf("HO TEN HS"); // "Họ tên HS"
   const idxUsername = header.indexOf("USERNAME");
   const idxDef = header.indexOf("DEFAULT_PASSWORD");
   const idxNew = header.indexOf("NEW_PASSWORD");
@@ -65,27 +101,34 @@ export async function fetchAccountsFromSheet(): Promise<Map<string, AccountRow>>
 
   const map = new Map<string, AccountRow>();
   for (let r = 1; r < rows.length; r++) {
-    const row = rows[r];
+    const row = rows[r] ?? [];
+    const mhs = h(row[idxMhs]);
     const username = h(row[idxUsername]);
-    if (!username) continue;
+    if (!mhs && !username) continue;
 
-    map.set(username, {
-      mhs: h(row[idxMhs]),
+    const key = mhs || username; // bạn dùng MHS làm tài khoản => key là mhs
+    map.set(key, {
+      mhs,
       name: idxName >= 0 ? h(row[idxName]) : "",
-      username,
+      username: username || mhs,
       defaultPassword: h(row[idxDef]),
       newPassword: h(row[idxNew]),
     });
   }
+
   return map;
 }
 
-export async function getOverridePassword(username: string): Promise<string | null> {
+function sb() {
   const supabaseUrl = process.env.SUPABASE_URL!;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  const sb = createClient(supabaseUrl, serviceKey);
+  if (!supabaseUrl || !serviceKey) throw new Error("Missing Supabase env");
+  return createClient(supabaseUrl, serviceKey);
+}
 
-  const { data, error } = await sb
+export async function getOverridePassword(username: string): Promise<string | null> {
+  const supabase = sb();
+  const { data, error } = await supabase
     .from("account_overrides")
     .select("new_password")
     .eq("username", username)
@@ -97,11 +140,8 @@ export async function getOverridePassword(username: string): Promise<string | nu
 }
 
 export async function setOverridePassword(username: string, mhs: string, newPassword: string, note?: string) {
-  const supabaseUrl = process.env.SUPABASE_URL!;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  const sb = createClient(supabaseUrl, serviceKey);
-
-  const { error } = await sb
+  const supabase = sb();
+  const { error } = await supabase
     .from("account_overrides")
     .upsert(
       { username, mhs, new_password: newPassword, updated_at: new Date().toISOString(), note: note || "" },
@@ -112,11 +152,8 @@ export async function setOverridePassword(username: string, mhs: string, newPass
 }
 
 export async function clearOverridePassword(username: string) {
-  const supabaseUrl = process.env.SUPABASE_URL!;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  const sb = createClient(supabaseUrl, serviceKey);
-
-  const { error } = await sb.from("account_overrides").delete().eq("username", username);
+  const supabase = sb();
+  const { error } = await supabase.from("account_overrides").delete().eq("username", username);
   if (error) throw new Error(error.message);
 }
 
