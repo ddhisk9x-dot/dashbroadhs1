@@ -236,7 +236,7 @@ async function doSyncFromSheet() {
 
   const { error } = await supabase
     .from("app_state")
-    .upsert({ id: "main", students: { students: newStudents } }, { onConflict: "id" });
+    .upsert({ id: "main", students_json: { students: newStudents } }, { onConflict: "id" });
 
   if (error) throw new Error(error.message);
 
@@ -289,3 +289,4 @@ export async function GET(req: Request) {
     );
   }
 }
+
