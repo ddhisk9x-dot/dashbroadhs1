@@ -33,61 +33,8 @@ async function readSession(): Promise<SessionPayload | null> {
   }
 }
 
-function normHeader(v: any): string {
-  return String(v ?? "")
-    .replace(/\uFEFF/g, "") // BOM
-    .replace(/\s+/g, " ")
-    .trim()
-    .toUpperCase();
-}
-
-// Detect CSV delimiter (comma/semicolon/tab) from first few non-empty lines
-function detectDelimiter(text: string): string {
-  const lines = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0)
-    .slice(0, 10);
-
-  if (lines.length === 0) return ",";
-
-  const candidates = [",", ";", "\t"];
-  const score: Record<string, number> = { ",": 0, ";": 0, "\t": 0 };
-
-  for (const line of lines) {
-    for (const d of candidates) {
-      score[d] += countDelimiterOutsideQuotes(line, d);
-    }
-  }
-
-  // pick max
-  let best = ",";
-  for (const d of candidates) {
-    if (score[d] > score[best]) best = d;
-  }
-  return best;
-}
-
-function countDelimiterOutsideQuotes(line: string, delim: string): number {
-  let inQuotes = false;
-  let count = 0;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        i++; // escaped quote
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-    if (!inQuotes && ch === delim) count++;
-  }
-  return count;
-}
-
-// CSV parser (supports delimiter + quotes)
-function parseCSV(text: string, delim: string): string[][] {
+// CSV parser đơn giản (đủ cho bảng điểm)
+function parseCSV(text: string): string[][] {
   const rows: string[][] = [];
   let cur = "";
   let inQuotes = false;
@@ -106,7 +53,7 @@ function parseCSV(text: string, delim: string): string[][] {
       continue;
     }
 
-    if (!inQuotes && ch === delim) {
+    if (!inQuotes && ch === ",") {
       row.push(cur);
       cur = "";
       continue;
@@ -131,6 +78,14 @@ function parseCSV(text: string, delim: string): string[][] {
   return rows;
 }
 
+function normHeader(v: any): string {
+  return String(v ?? "")
+    .replace(/\uFEFF/g, "") // BOM
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
 function toNumberOrNull(v: string | undefined): number | null {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
@@ -149,26 +104,9 @@ type Student = {
   aiReport?: any;
 };
 
-function findColIndex(header2: string[], aliases: string[]): number {
-  for (const a of aliases) {
-    const idx = header2.indexOf(normHeader(a));
-    if (idx >= 0) return idx;
-  }
-  return -1;
-}
-
-function findHeaderRowIndex(rows: string[][]): number {
-  // scan first 15 rows to find the one that contains "MHS" (or aliases)
-  const aliases = ["MHS", "MÃ HS", "MA HS", "MAHS", "MÃ HỌC SINH", "MA HOC SINH"];
-  const want = aliases.map(normHeader);
-
-  const max = Math.min(rows.length, 15);
-  for (let i = 0; i < max; i++) {
-    const row = rows[i] ?? [];
-    const normed = row.map(normHeader);
-    if (normed.some((c) => want.includes(c))) return i;
-  }
-  return -1;
+function looksLikeHtml(text: string): boolean {
+  const s = text.slice(0, 300).toLowerCase();
+  return s.includes("<!doctype html") || s.includes("<html") || s.includes("google sheets");
 }
 
 async function doSyncFromSheet() {
@@ -180,46 +118,54 @@ async function doSyncFromSheet() {
   if (!supabaseUrl || !serviceKey) throw new Error("Missing Supabase env");
 
   // 1) Fetch CSV
-  const resp = await fetch(sheetUrl, { cache: "no-store" });
-  if (!resp.ok) throw new Error(`Fetch CSV failed: ${resp.status}`);
-  const csv = await resp.text();
+  const resp = await fetch(sheetUrl, {
+    cache: "no-store",
+    redirect: "follow",
+    headers: {
+      // giúp Google trả dữ liệu dạng text/csv ổn định hơn
+      "Accept": "text/csv,text/plain;q=0.9,*/*;q=0.8",
+    },
+  });
 
-  // 2) Parse CSV robustly (detect delimiter)
-  const delim = detectDelimiter(csv);
-  const rows = parseCSV(csv, delim);
-
-  if (rows.length < 2) throw new Error("CSV too short");
-
-  // 3) Auto-detect header row that contains MHS
-  const headerRowIndex = findHeaderRowIndex(rows);
-  if (headerRowIndex < 0) {
-    // show first 3 rows to help debug
-    const preview = rows.slice(0, 3).map((r) => r.slice(0, 12));
-    throw new Error(`Missing column: MHS (not found in first rows). Preview: ${JSON.stringify(preview)}`);
+  if (!resp.ok) {
+    throw new Error(`Fetch CSV failed: ${resp.status}`);
   }
 
-  // month row is the row immediately above the header row (your design)
-  const monthRowIndex = Math.max(0, headerRowIndex - 1);
+  const contentType = resp.headers.get("content-type") || "";
+  const text = await resp.text();
 
-  const monthRow = rows[monthRowIndex] ?? [];
-  const headerRow = rows[headerRowIndex] ?? [];
+  // Nếu URL đang trỏ vào trang Google Sheets (HTML) thay vì CSV
+  if (looksLikeHtml(text) || contentType.includes("text/html")) {
+    const preview = text.slice(0, 200).replace(/\s+/g, " ");
+    throw new Error(
+      `SHEET_CSV_URL is not a CSV export link (got HTML). ` +
+      `Please use: https://docs.google.com/spreadsheets/d/<ID>/export?format=csv&gid=<GID> ` +
+      `Preview: ${preview}`
+    );
+  }
+
+  const rows = parseCSV(text);
+
+  // 2) Validate
+  if (rows.length < 3) throw new Error("CSV must have 2 header rows + data rows");
+
+  const monthRow = rows[0] ?? [];   // Row 1: month_key
+  const headerRow = rows[1] ?? [];  // Row 2: column names
+
   const header2 = headerRow.map(normHeader);
 
-  const idxMhs = findColIndex(header2, ["MHS", "MÃ HS", "MA HS", "MAHS", "MÃ HỌC SINH", "MA HOC SINH"]);
-  const idxName = findColIndex(header2, ["HỌ VÀ TÊN", "HỌ TÊN", "HO VA TEN", "HO TEN"]);
-  const idxClass = findColIndex(header2, ["LỚP", "LOP"]);
+  const idxMhs = header2.indexOf("MHS");
+  const idxName = header2.indexOf("HỌ VÀ TÊN");
+  const idxClass = header2.indexOf("LỚP");
 
   if (idxMhs < 0) {
-    throw new Error(`Missing column: MHS (headerRowIndex=${headerRowIndex}). Headers: ${JSON.stringify(headerRow)}`);
+    const hPreview = headerRow.slice(0, 20).map((x) => String(x ?? "")).join(" | ");
+    throw new Error(`Missing column: MHS (header row 2). Header preview: ${hPreview}`);
   }
-  if (idxName < 0) {
-    throw new Error(`Missing column: HỌ VÀ TÊN (headerRowIndex=${headerRowIndex}). Headers: ${JSON.stringify(headerRow)}`);
-  }
-  if (idxClass < 0) {
-    throw new Error(`Missing column: LỚP (headerRowIndex=${headerRowIndex}). Headers: ${JSON.stringify(headerRow)}`);
-  }
+  if (idxName < 0) throw new Error("Missing column: HỌ VÀ TÊN");
+  if (idxClass < 0) throw new Error("Missing column: LỚP");
 
-  // month keys like 2025-08
+  // Lấy month keys đúng định dạng yyyy-mm
   const monthKeys = Array.from(
     new Set(
       monthRow
@@ -229,9 +175,7 @@ async function doSyncFromSheet() {
   );
 
   if (monthKeys.length === 0) {
-    throw new Error(
-      `No month_key detected on month row (row ${monthRowIndex + 1}). Expected "YYYY-MM" like 2025-08.`
-    );
+    throw new Error('No month_key detected on row 1. Expected values like "2025-08".');
   }
 
   const getCol = (monthKey: string, subjectUpper: string) => {
@@ -244,13 +188,10 @@ async function doSyncFromSheet() {
     return -1;
   };
 
-  // data starts after header row
-  const dataStart = headerRowIndex + 1;
-
-  // 4) Build students
+  // 3) Build students
   const studentMap = new Map<string, Student>();
 
-  for (let r = dataStart; r < rows.length; r++) {
+  for (let r = 2; r < rows.length; r++) {
     const row = rows[r] ?? [];
     const mhs = String(row[idxMhs] ?? "").trim();
     if (!mhs) continue;
@@ -290,10 +231,9 @@ async function doSyncFromSheet() {
 
   const newStudents = Array.from(studentMap.values());
 
-  // 5) Save to app_state(main)
+  // 4) Save to app_state(main)
   const supabase = createClient(supabaseUrl, serviceKey);
 
-  // LƯU Ý: cột JSON trong app_state của bạn là "students" (bản cloud hiện tại)
   const { error } = await supabase
     .from("app_state")
     .upsert({ id: "main", students: { students: newStudents } }, { onConflict: "id" });
@@ -301,9 +241,6 @@ async function doSyncFromSheet() {
   if (error) throw new Error(error.message);
 
   return {
-    delimiter: delim === "\t" ? "TAB" : delim,
-    headerRowIndex,
-    monthRowIndex,
     students: newStudents.length,
     monthsDetected: monthKeys.length,
     months: monthKeys,
@@ -323,7 +260,10 @@ export async function POST() {
     const result = await doSyncFromSheet();
     return NextResponse.json({ ok: true, mode: "admin", ...result });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Sync failed" },
+      { status: 500 }
+    );
   }
 }
 
@@ -343,6 +283,9 @@ export async function GET(req: Request) {
     const result = await doSyncFromSheet();
     return NextResponse.json({ ok: true, mode: "cron", ...result });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message || "Sync failed" },
+      { status: 500 }
+    );
   }
 }
