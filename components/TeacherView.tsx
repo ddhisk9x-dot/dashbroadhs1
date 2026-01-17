@@ -243,24 +243,77 @@ export default function TeacherView({
 
   // ✅ Sync Google Sheet (admin-only)
   const handleSyncSheet = async () => {
-    setIsSyncing(true);
-    try {
-      const res = await fetch("/api/sync/sheets", { method: "POST" });
-      const data = await res.json();
+  setIsSyncing(true);
+  try {
+    // 1) sync an toàn: chỉ tháng mới
+    const res1 = await fetch("/api/sync/sheets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "new_only" }),
+    });
+    const data1 = await res1.json();
 
-      if (!res.ok || !data?.ok) {
-        alert(`Lỗi đồng bộ: ${data?.error || "Sync failed"}`);
-        return;
-      }
-
-      alert(`Đồng bộ xong: ${data.students} HS`);
-      window.location.reload();
-    } catch (e: any) {
-      alert(`Lỗi đồng bộ: ${e?.message || "Network error"}`);
-    } finally {
-      setIsSyncing(false);
+    if (!res1.ok || !data1?.ok) {
+      alert(`Lỗi đồng bộ: ${data1?.error || "Sync failed"}`);
+      return;
     }
-  };
+
+    const monthsAll: string[] = data1.monthsAll || [];
+    const newMonths: string[] = data1.newMonthsDetected || [];
+    const monthsSynced: string[] = data1.monthsSynced || [];
+
+    // 2) Nếu có tháng mới -> hỏi có muốn chỉ sync tháng mới hay chọn tháng
+    if (monthsAll.length > 0) {
+      const wantPick = confirm(
+        `Đồng bộ xong (${monthsSynced.length} tháng).\n` +
+          (newMonths.length ? `Phát hiện tháng mới: ${newMonths.join(", ")}\n` : "") +
+          `Bạn có muốn CHỌN THÁNG để đồng bộ lại không?`
+      );
+
+      if (wantPick) {
+        const input = prompt(
+          `Nhập các tháng cần đồng bộ, cách nhau bằng dấu phẩy.\nVí dụ: 2025-08,2025-09\n\nCác tháng hiện có: ${monthsAll.join(", ")}`,
+          newMonths.length ? newMonths.join(",") : monthsAll.join(",")
+        );
+
+        const selectedMonths =
+          (input || "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+        if (selectedMonths.length) {
+          const res2 = await fetch("/api/sync/sheets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "months", selectedMonths }),
+          });
+          const data2 = await res2.json();
+
+          if (!res2.ok || !data2?.ok) {
+            alert(`Lỗi đồng bộ: ${data2?.error || "Sync failed"}`);
+            return;
+          }
+
+          alert(
+            `Đồng bộ xong: ${data2.students} HS\nTháng đã sync: ${(data2.monthsSynced || []).join(", ")}`
+          );
+          window.location.reload();
+          return;
+        }
+      }
+    }
+
+    alert(
+      `Đồng bộ xong: ${data1.students} HS\nTháng đã sync: ${(data1.monthsSynced || []).join(", ")}`
+    );
+    window.location.reload();
+  } catch (e: any) {
+    alert(`Lỗi đồng bộ: ${e?.message || "Network error"}`);
+  } finally {
+    setIsSyncing(false);
+  }
+};
 
   const handleSaveEdit = () => {
     if (!viewingStudent || !viewingStudent.aiReport) return;
