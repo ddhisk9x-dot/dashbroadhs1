@@ -24,56 +24,74 @@ function uniqNonEmpty(arr: Array<string | null | undefined>) {
 }
 
 export async function POST(req: Request) {
-  const session = await getSession();
-  if (!session || session.role !== "STUDENT" || !session.mhs) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
+  try {
+    const session = await getSession();
+    if (!session || session.role !== "STUDENT" || !session.mhs) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
 
-  const body = await req.json().catch(() => ({}));
-  const currentPassword = String(body.currentPassword || "").trim();
-  const newPassword = String(body.newPassword || "").trim();
+    const body = await req.json().catch(() => ({}));
+    const currentPassword = String(body.currentPassword || "").trim();
+    const newPassword = String(body.newPassword || "").trim();
 
-  if (!currentPassword || !newPassword) {
+    if (!currentPassword || !newPassword) {
+      return NextResponse.json(
+        { ok: false, error: "Missing currentPassword/newPassword" },
+        { status: 400 }
+      );
+    }
+
+    const username = String(session.mhs).trim(); // MHS làm tài khoản
+
+    const accounts = await fetchAccountsFromSheet();
+    const acc = accounts.get(username);
+    if (!acc) {
+      return NextResponse.json({ ok: false, error: "Account not found in sheet" }, { status: 404 });
+    }
+
+    const override = await getOverridePassword(username);
+
+    const allowedCurrents = uniqNonEmpty([override, acc.newPassword, acc.defaultPassword, username]);
+
+    if (!allowedCurrents.includes(currentPassword)) {
+      return NextResponse.json({ ok: false, error: "Wrong current password" }, { status: 400 });
+    }
+
+    if (allowedCurrents.includes(newPassword)) {
+      return NextResponse.json(
+        { ok: false, error: "New password must be different" },
+        { status: 400 }
+      );
+    }
+
+    // 1) DB override: MUST succeed
+    await setOverridePassword(username, acc.mhs || username, newPassword, "student_change");
+
+    // 2) Sheet write: best-effort (nếu lỗi vẫn đổi MK được vì DB override đã cập nhật)
+    let sheetWritten = false;
+    let sheetError: string | null = null;
+
+    try {
+      // nếu bạn chưa set env ghi sheet, đừng làm fail cả đổi mật khẩu
+      if (process.env.ACCOUNTS_WRITE_URL && process.env.ACCOUNTS_WRITE_SECRET) {
+        await writeSheetNewPassword(username, newPassword, "student_change");
+        sheetWritten = true;
+      } else {
+        sheetError = "Missing env ACCOUNTS_WRITE_URL/ACCOUNTS_WRITE_SECRET (skip sheet write)";
+      }
+    } catch (e: any) {
+      sheetError = e?.message || "Write sheet failed";
+    }
+
+    return NextResponse.json({
+      ok: true,
+      sheetWritten,
+      sheetError,
+    });
+  } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: "Missing currentPassword/newPassword" },
-      { status: 400 }
+      { ok: false, error: e?.message || "Change password failed" },
+      { status: 500 }
     );
   }
-
-  const username = String(session.mhs).trim(); // dùng MHS làm tài khoản
-
-  const accounts = await fetchAccountsFromSheet();
-
-  // lookup linh hoạt: ưu tiên mhs, nếu không có thì thử username
-  const acc = accounts.get(username) || accounts.get(String(body.username || "").trim());
-  if (!acc) return NextResponse.json({ ok: false, error: "Account not found" }, { status: 404 });
-
-  const override = await getOverridePassword(username);
-
-  // ✅ CHỐT: chấp nhận "mật khẩu hiện tại" là 1 trong các giá trị sau:
-  // - override (DB)
-  // - NEW_PASSWORD (sheet)
-  // - DEFAULT_PASSWORD (sheet)
-  // - username (MHS)  => vì bạn cho phép MK = MHS
-  const allowedCurrents = uniqNonEmpty([override, acc.newPassword, acc.defaultPassword, username]);
-
-  if (!allowedCurrents.includes(currentPassword)) {
-    return NextResponse.json({ ok: false, error: "Wrong current password" }, { status: 400 });
-  }
-
-  // (tùy chọn) chặn đổi MK trùng MK cũ
-  if (allowedCurrents.includes(newPassword)) {
-    return NextResponse.json(
-      { ok: false, error: "New password must be different" },
-      { status: 400 }
-    );
-  }
-
-  // Ghi DB override trước (ưu tiên chạy được ngay)
-  await setOverridePassword(username, acc.mhs || username, newPassword, "student_change");
-
-  // Sau đó ghi sheet NEW_PASSWORD
-  await writeSheetNewPassword(username, newPassword, "student_change");
-
-  return NextResponse.json({ ok: true });
 }
