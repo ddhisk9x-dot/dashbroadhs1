@@ -205,7 +205,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
         {/* Biểu đồ học tập */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
           <div className="text-sm font-bold text-slate-800 mb-4">Biểu đồ Học tập</div>
-          <ScoreChart students={[student]} />
+          <ScoreChart data={student.scores || []} />
         </div>
 
         {/* Thói quen hằng ngày (giữ như bản cũ) */}
