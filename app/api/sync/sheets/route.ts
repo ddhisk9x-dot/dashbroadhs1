@@ -358,8 +358,11 @@ export async function GET(req: Request) {
 
   try {
     const result = await doSyncFromSheet({ mode: "new_only", selectedMonths: [] });
-    return NextResponse.json({ ok: true, mode: "cron", ...result });
+    const { ok: _ok, ...rest } = result as any;
+return NextResponse.json({ ok: true, mode: "admin", ...rest });
+
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
   }
 }
+
