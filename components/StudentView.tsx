@@ -1,6 +1,6 @@
 "use client";
 import StudentChangePassword from "./StudentChangePassword";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import type { Student, ScoreData, StudyAction } from "../types";
 import { LogOut, CalendarCheck, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import ScoreChart from "./ScoreChart";
@@ -20,6 +20,22 @@ function isoDate(d: Date) {
 
 function isoMonth(d: Date) {
   return isoDate(d).slice(0, 7);
+}
+
+function nextMonthKey(monthKey: string): string {
+  // input: YYYY-MM
+  const m = String(monthKey || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(m)) return isoMonth(new Date());
+  const [yStr, moStr] = m.split("-");
+  let y = Number(yStr);
+  let mo = Number(moStr); // 1..12
+  if (!y || !mo) return isoMonth(new Date());
+  mo += 1;
+  if (mo === 13) {
+    mo = 1;
+    y += 1;
+  }
+  return `${String(y).padStart(4, "0")}-${String(mo).padStart(2, "0")}`;
 }
 
 function getLastNDays(n: number) {
@@ -51,11 +67,12 @@ function getMonthDates(monthKey: string) {
   return out;
 }
 
-function latestMonthKey(scores?: ScoreData[]) {
+function latestScoreMonthKey(scores?: ScoreData[]) {
   const arr = Array.isArray(scores) ? scores : [];
+  // scores đã sort theo month trong sync => lấy phần tử cuối
   const last = arr[arr.length - 1]?.month?.trim();
   if (last && /^\d{4}-\d{2}$/.test(last)) return last;
-  return new Date().toISOString().slice(0, 7);
+  return isoMonth(new Date());
 }
 
 function safeActionsByMonth(student: Student) {
@@ -68,6 +85,7 @@ function getActionsForMonth(student: Student, monthKey: string): StudyAction[] {
   const abm = safeActionsByMonth(student);
   const list = abm?.[monthKey];
   if (Array.isArray(list) && list.length) return list;
+  // backward compat
   return Array.isArray(student.activeActions) ? student.activeActions : [];
 }
 
@@ -83,18 +101,19 @@ function shortDayLabel(dateStr: string) {
 }
 
 export default function StudentView({ student, onUpdateAction, onLogout }: Props) {
+  // ====== TASK MONTH (LOGIC CHUẨN) ======
+  // Điểm tháng N cập nhật cuối tháng N => nhiệm vụ tick cho tháng N+1
+  const inferredTaskMonth = useMemo(() => nextMonthKey(latestScoreMonthKey(student.scores)), [student.scores]);
+
   // ====== STATE ======
-  const [selectedDate, setSelectedDate] = useState<string>(isoDate(new Date()));
+  const [selectedTaskMonth, setSelectedTaskMonth] = useState<string>(inferredTaskMonth);
+  const [selectedDate, setSelectedDate] = useState<string>(() => `${inferredTaskMonth}-01`);
 
   // tick long-term
   const [trackingMode, setTrackingMode] = useState<"range" | "month">("range");
   const [rangeDays, setRangeDays] = useState<7 | 30 | 90>(30);
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
-    const m = latestMonthKey(student.scores);
-    return m;
-  });
 
-  // ====== DERIVED ======
+  // ====== DERIVED MONTH LIST ======
   const monthKeys = useMemo(() => {
     const fromScores = (student.scores || [])
       .map((s) => String(s.month || "").trim())
@@ -102,45 +121,43 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
 
     const fromActions = Object.keys(safeActionsByMonth(student)).filter((m) => /^\d{4}-\d{2}$/.test(m));
 
-    const set = new Set<string>([...fromScores, ...fromActions]);
+    const set = new Set<string>([...fromScores, ...fromActions, inferredTaskMonth, isoMonth(new Date())]);
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [student]);
+  }, [student, inferredTaskMonth]);
 
-  const selectedMonthSafe = useMemo(() => {
-    if (monthKeys.includes(selectedMonth)) return selectedMonth;
-    const fallback = monthKeys[monthKeys.length - 1] || latestMonthKey(student.scores);
-    return fallback;
-  }, [selectedMonth, monthKeys, student.scores]);
+  const selectedTaskMonthSafe = useMemo(() => {
+    if (monthKeys.includes(selectedTaskMonth)) return selectedTaskMonth;
+    return inferredTaskMonth;
+  }, [selectedTaskMonth, monthKeys, inferredTaskMonth]);
 
-  const monthIndex = monthKeys.indexOf(selectedMonthSafe);
-  const canPrevMonth = monthIndex > 0;
-  const canNextMonth = monthIndex >= 0 && monthIndex < monthKeys.length - 1;
+  // Ensure selectedDate stays inside selectedTaskMonthSafe
+  useEffect(() => {
+    if (selectedDate.slice(0, 7) !== selectedTaskMonthSafe) {
+      setSelectedDate(`${selectedTaskMonthSafe}-01`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTaskMonthSafe]);
 
+  // ====== DAILY ACTIONS (THEO THÁNG NHIỆM VỤ) ======
+  const dailyActions = useMemo(() => getActionsForMonth(student, selectedTaskMonthSafe), [student, selectedTaskMonthSafe]);
+
+  // ====== TRACKING ACTIONS ======
+  // - range: xem tiến độ của "tháng nhiệm vụ đang chọn" theo 7/30/90 ngày (nhưng chỉ lấy ngày trong tháng đó để không bị sai)
+  // - month: xem cả tháng
   const trackingDates = useMemo(() => {
-    if (trackingMode === "range") return getLastNDays(rangeDays);
-    return getMonthDates(selectedMonthSafe);
-  }, [trackingMode, rangeDays, selectedMonthSafe]);
+    if (trackingMode === "month") return getMonthDates(selectedTaskMonthSafe);
+    // range: chỉ giữ ngày thuộc đúng month nhiệm vụ để tránh tick/đếm nhảy sang tháng khác
+    return getLastNDays(rangeDays).filter((d) => d.slice(0, 7) === selectedTaskMonthSafe);
+  }, [trackingMode, rangeDays, selectedTaskMonthSafe]);
 
-  const dailyMonthKey = useMemo(() => {
-    const mk = selectedDate.slice(0, 7);
-    if (/^\d{4}-\d{2}$/.test(mk)) return mk;
-    return latestMonthKey(student.scores);
-  }, [selectedDate, student.scores]);
+  const trackingActions = useMemo(() => getActionsForMonth(student, selectedTaskMonthSafe), [student, selectedTaskMonthSafe]);
 
-  const dailyActions = useMemo(() => getActionsForMonth(student, dailyMonthKey), [student, dailyMonthKey]);
-  const trackingActions = useMemo(
-    () => getActionsForMonth(student, selectedMonthSafe),
-    [student, selectedMonthSafe]
-  );
-
+  // ====== UI CONTENT ======
   const ai = student.aiReport;
-
-  // ====== UI HELPERS ======
-  const overviewText = ai?.overview || `Tổng quan: dữ liệu mới nhất tháng ${latestMonthKey(student.scores)}.`;
+  const overviewText = ai?.overview || `Tổng quan: dữ liệu mới nhất tháng ${latestScoreMonthKey(student.scores)}.`;
   const strengthsText = (ai?.strengths && ai.strengths[0]) || "Có dữ liệu theo dõi theo tháng.";
   const risksText = (ai?.risks && ai.risks[0]) || "Cần duy trì thói quen học đều.";
 
-  // group plan by day (keep order)
   const planByDay = useMemo(() => {
     const plan = Array.isArray(ai?.studyPlan) ? ai!.studyPlan : [];
     const map = new Map<string, any[]>();
@@ -158,6 +175,11 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
     const cur = !!tickMap.get(selectedDate);
     await onUpdateAction(action.id, selectedDate, !cur);
   };
+
+  // month navigation helpers
+  const monthIndex = monthKeys.indexOf(selectedTaskMonthSafe);
+  const canPrevMonth = monthIndex > 0;
+  const canNextMonth = monthIndex >= 0 && monthIndex < monthKeys.length - 1;
 
   return (
     <div className="min-h-screen bg-[#f7f9fc] font-sans">
@@ -184,7 +206,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
       </div>
 
       <div className="max-w-5xl mx-auto px-5 py-6 space-y-6">
-        {/* Cards: Tổng quan / Điểm mạnh / Cần lưu ý */}
+        {/* Cards */}
         <div className="grid md:grid-cols-3 gap-4">
           <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4">
             <div className="text-sm font-bold text-orange-700 mb-2">Tổng quan</div>
@@ -202,30 +224,63 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
           </div>
         </div>
 
-        {/* Biểu đồ học tập */}
+        {/* Chart */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
           <div className="text-sm font-bold text-slate-800 mb-4">Biểu đồ Học tập</div>
           <ScoreChart data={student.scores || []} />
         </div>
 
-        {/* Thói quen hằng ngày (giữ như bản cũ) */}
+        {/* Daily habits */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-          <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
             <div>
               <div className="text-sm font-bold text-slate-800">Thói quen Hàng ngày</div>
-              <div className="text-xs text-slate-500">Đánh dấu tích để hoàn thành mục tiêu hôm nay.</div>
+              <div className="text-xs text-slate-500">Nhiệm vụ theo tháng: <b>{selectedTaskMonthSafe}</b> (tháng sau có thể khác).</div>
             </div>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white"
-            />
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => canPrevMonth && setSelectedTaskMonth(monthKeys[monthIndex - 1])}
+                disabled={!canPrevMonth}
+                className="p-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
+                title="Tháng trước"
+              >
+                <ChevronLeft size={18} />
+              </button>
+
+              <select
+                value={selectedTaskMonthSafe}
+                onChange={(e) => setSelectedTaskMonth(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700"
+              >
+                {monthKeys.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                onClick={() => canNextMonth && setSelectedTaskMonth(monthKeys[monthIndex + 1])}
+                disabled={!canNextMonth}
+                className="p-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
+                title="Tháng sau"
+              >
+                <ChevronRight size={18} />
+              </button>
+
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white"
+              />
+            </div>
           </div>
 
           {dailyActions.length === 0 ? (
             <div className="text-sm text-slate-400 italic py-6 text-center">
-              Chưa có nhiệm vụ cho tháng {dailyMonthKey}.
+              Chưa có nhiệm vụ cho tháng {selectedTaskMonthSafe}.
             </div>
           ) : (
             <div className="space-y-3">
@@ -265,7 +320,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
           )}
         </div>
 
-        {/* ✅ Theo dõi tick dài hạn (thêm mới, không phá UI cũ) */}
+        {/* Long-term tracking */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
             <div className="flex items-center gap-2">
@@ -315,50 +370,9 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
             </div>
           </div>
 
-          {/* Month selector */}
-          <div className="flex items-center gap-2 mb-4">
-            <button
-              onClick={() => canPrevMonth && setSelectedMonth(monthKeys[monthIndex - 1])}
-              disabled={!canPrevMonth}
-              className="p-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
-              title="Tháng trước"
-            >
-              <ChevronLeft size={18} />
-            </button>
-
-            <select
-              value={selectedMonthSafe}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700"
-            >
-              {monthKeys.length === 0 ? (
-                <option value={selectedMonthSafe}>{selectedMonthSafe}</option>
-              ) : (
-                monthKeys.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))
-              )}
-            </select>
-
-            <button
-              onClick={() => canNextMonth && setSelectedMonth(monthKeys[monthIndex + 1])}
-              disabled={!canNextMonth}
-              className="p-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
-              title="Tháng sau"
-            >
-              <ChevronRight size={18} />
-            </button>
-
-            <div className="text-xs text-slate-500 ml-2">
-              {trackingMode === "month" ? `Xem theo tháng ${selectedMonthSafe}` : `Xem ${rangeDays} ngày gần nhất`}
-            </div>
-          </div>
-
           {trackingActions.length === 0 ? (
             <div className="text-sm text-slate-400 italic py-6 text-center">
-              Chưa có nhiệm vụ để theo dõi trong tháng {selectedMonthSafe}.
+              Chưa có nhiệm vụ để theo dõi trong tháng {selectedTaskMonthSafe}.
             </div>
           ) : (
             <div className="space-y-4">
@@ -413,7 +427,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
           )}
         </div>
 
-        {/* Kế hoạch 2 tuần tới */}
+        {/* Study plan */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
           <div className="text-sm font-bold text-slate-800 mb-4">Kế hoạch 2 Tuần tới</div>
 
@@ -442,18 +456,17 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
             </div>
           )}
         </div>
-{/* ✅ Đổi mật khẩu */}
-<StudentChangePassword />
-        {/* Lời nhắn */}
+
+        {/* Change password */}
+        <StudentChangePassword />
+
+        {/* Message */}
         <div className="rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white p-5 shadow-sm">
           <div className="text-sm font-bold mb-2">✨ Lời nhắn từ AI Mentor</div>
-          <div className="text-sm italic">
-            “{ai?.messageToStudent || "Mỗi ngày tiến bộ 1 chút là đủ."}”
-          </div>
+          <div className="text-sm italic">“{ai?.messageToStudent || "Mỗi ngày tiến bộ 1 chút là đủ."}”</div>
           <div className="text-[10px] text-white/60 mt-4 uppercase tracking-wider">DISCLAIMER:</div>
           <div className="text-[11px] text-white/70">
-            {ai?.disclaimer ||
-              "Nhận xét AI chỉ mang tính tham khảo, giáo viên sẽ điều chỉnh theo thực tế."}
+            {ai?.disclaimer || "Nhận xét AI chỉ mang tính tham khảo, giáo viên sẽ điều chỉnh theo thực tế."}
           </div>
         </div>
       </div>
