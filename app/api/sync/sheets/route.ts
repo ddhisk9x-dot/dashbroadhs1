@@ -105,11 +105,17 @@ type Student = {
 };
 
 function looksLikeHtml(text: string): boolean {
-  const s = text.slice(0, 300).toLowerCase();
+  const s = text.slice(0, 400).toLowerCase();
   return s.includes("<!doctype html") || s.includes("<html") || s.includes("google sheets");
 }
 
-async function doSyncFromSheet() {
+type SyncMode = "new_only" | "months";
+type SyncOpts = { mode?: SyncMode; selectedMonths?: string[] };
+
+async function doSyncFromSheet(opts?: SyncOpts) {
+  const mode: SyncMode = opts?.mode ?? "new_only";
+  const selectedMonths: string[] = Array.isArray(opts?.selectedMonths) ? opts!.selectedMonths! : [];
+
   const sheetUrl = process.env.SHEET_CSV_URL;
   if (!sheetUrl) throw new Error("Missing env: SHEET_CSV_URL");
 
@@ -121,26 +127,21 @@ async function doSyncFromSheet() {
   const resp = await fetch(sheetUrl, {
     cache: "no-store",
     redirect: "follow",
-    headers: {
-      // giúp Google trả dữ liệu dạng text/csv ổn định hơn
-      "Accept": "text/csv,text/plain;q=0.9,*/*;q=0.8",
-    },
+    headers: { Accept: "text/csv,text/plain;q=0.9,*/*;q=0.8" },
   });
 
-  if (!resp.ok) {
-    throw new Error(`Fetch CSV failed: ${resp.status}`);
-  }
+  if (!resp.ok) throw new Error(`Fetch CSV failed: ${resp.status}`);
 
   const contentType = resp.headers.get("content-type") || "";
   const text = await resp.text();
 
-  // Nếu URL đang trỏ vào trang Google Sheets (HTML) thay vì CSV
+  // Nếu URL đang trỏ vào trang HTML chứ không phải CSV export
   if (looksLikeHtml(text) || contentType.includes("text/html")) {
     const preview = text.slice(0, 200).replace(/\s+/g, " ");
     throw new Error(
       `SHEET_CSV_URL is not a CSV export link (got HTML). ` +
-      `Please use: https://docs.google.com/spreadsheets/d/<ID>/export?format=csv&gid=<GID> ` +
-      `Preview: ${preview}`
+        `Use: https://docs.google.com/spreadsheets/d/<ID>/export?format=csv&gid=<GID>. ` +
+        `Preview: ${preview}`
     );
   }
 
@@ -149,8 +150,8 @@ async function doSyncFromSheet() {
   // 2) Validate
   if (rows.length < 3) throw new Error("CSV must have 2 header rows + data rows");
 
-  const monthRow = rows[0] ?? [];   // Row 1: month_key
-  const headerRow = rows[1] ?? [];  // Row 2: column names
+  const monthRow = rows[0] ?? []; // Row 1: month_key
+  const headerRow = rows[1] ?? []; // Row 2: column names
 
   const header2 = headerRow.map(normHeader);
 
@@ -159,14 +160,14 @@ async function doSyncFromSheet() {
   const idxClass = header2.indexOf("LỚP");
 
   if (idxMhs < 0) {
-    const hPreview = headerRow.slice(0, 20).map((x) => String(x ?? "")).join(" | ");
+    const hPreview = headerRow.slice(0, 30).map((x) => String(x ?? "")).join(" | ");
     throw new Error(`Missing column: MHS (header row 2). Header preview: ${hPreview}`);
   }
   if (idxName < 0) throw new Error("Missing column: HỌ VÀ TÊN");
   if (idxClass < 0) throw new Error("Missing column: LỚP");
 
   // Lấy month keys đúng định dạng yyyy-mm
-  const monthKeys = Array.from(
+  const monthKeysAll = Array.from(
     new Set(
       monthRow
         .map((x) => String(x ?? "").trim())
@@ -174,8 +175,44 @@ async function doSyncFromSheet() {
     )
   );
 
-  if (monthKeys.length === 0) {
+  if (monthKeysAll.length === 0) {
     throw new Error('No month_key detected on row 1. Expected values like "2025-08".');
+  }
+
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  // 0) Load dữ liệu cũ trước để biết tháng đã có + giữ aiReport/actions/ticks
+  const { data: oldState, error: oldErr } = await supabase
+    .from("app_state")
+    .select("students_json")
+    .eq("id", "main")
+    .maybeSingle();
+
+  if (oldErr) throw new Error(oldErr.message);
+
+  const oldStudents: Student[] = (oldState?.students_json?.students as Student[]) ?? [];
+
+  const oldMap = new Map<string, Student>();
+  oldStudents.forEach((s) => oldMap.set(String(s.mhs).trim(), s));
+
+  const oldMonths = new Set<string>();
+  for (const s of oldStudents) {
+    for (const sc of s.scores ?? []) oldMonths.add(sc.month);
+  }
+
+  const newMonthsDetected = monthKeysAll.filter((m) => !oldMonths.has(m));
+
+  // Quyết định months sẽ sync dựa trên mode
+  let monthKeysToSync: string[] = monthKeysAll;
+
+  if (mode === "new_only") {
+    monthKeysToSync = monthKeysAll.filter((m) => !oldMonths.has(m));
+  } else if (mode === "months") {
+    // sync theo tháng chọn (nếu không chọn gì thì coi như sync all)
+    if (selectedMonths.length > 0) {
+      const selSet = new Set(selectedMonths);
+      monthKeysToSync = monthKeysAll.filter((m) => selSet.has(m));
+    }
   }
 
   const getCol = (monthKey: string, subjectUpper: string) => {
@@ -188,7 +225,7 @@ async function doSyncFromSheet() {
     return -1;
   };
 
-  // 3) Build students
+  // 3) Build students from sheet for chosen months
   const studentMap = new Map<string, Student>();
 
   for (let r = 2; r < rows.length; r++) {
@@ -208,7 +245,7 @@ async function doSyncFromSheet() {
       st.class = className;
     }
 
-    for (const mk of monthKeys) {
+    for (const mk of monthKeysToSync) {
       const cMath = getCol(mk, "TOÁN");
       const cLit = getCol(mk, "NGỮ VĂN");
       const cEng = getCol(mk, "TIẾNG ANH");
@@ -229,82 +266,87 @@ async function doSyncFromSheet() {
     }
   }
 
-    const newStudents = Array.from(studentMap.values());
+  const newStudents = Array.from(studentMap.values());
 
-  const supabase = createClient(supabaseUrl, serviceKey);
-
-  // 1) Load dữ liệu cũ (giữ aiReport + activeActions/ticks)
-  const { data: oldState, error: oldErr } = await supabase
-    .from("app_state")
-    .select("students_json")
-    .eq("id", "main")
-    .maybeSingle();
-
-  if (oldErr) throw new Error(oldErr.message);
-
-  const oldStudents: Student[] =
-    (oldState?.students_json?.students as Student[]) ?? [];
-
-  const oldMap = new Map<string, Student>();
-  oldStudents.forEach((s) => oldMap.set(String(s.mhs).trim(), s));
-
-  // 2) Merge theo MHS: cập nhật scores/name/class, giữ aiReport & activeActions
+  // 4) Merge: cập nhật scores/name/class từ sheet, giữ aiReport + activeActions/ticks
   const mergedStudents: Student[] = newStudents.map((ns) => {
     const old = oldMap.get(String(ns.mhs).trim());
+
+    // Nếu mode = new_only / months => chỉ thay scores của các tháng đó,
+    // còn các tháng khác giữ nguyên từ old (nếu có)
+    let scoresMerged: ScoreData[] = ns.scores ?? [];
+
+    if (old?.scores?.length) {
+      const replaceMonths = new Set(monthKeysToSync);
+      const keepOldScores = old.scores.filter((sc) => !replaceMonths.has(sc.month));
+      scoresMerged = [...keepOldScores, ...(ns.scores ?? [])].sort((a, b) => a.month.localeCompare(b.month));
+    }
+
     return {
       ...ns,
+      scores: scoresMerged,
       aiReport: old?.aiReport ?? ns.aiReport,
       activeActions: old?.activeActions ?? ns.activeActions ?? [],
     };
   });
 
-  // 3) Giữ học sinh cũ không có trong sheet mới (để không mất ticks)
+  // 5) Giữ học sinh cũ không có trong sheet mới (để không mất ticks)
   for (const [mhs, old] of oldMap.entries()) {
     if (!mergedStudents.some((s) => s.mhs === mhs)) {
       mergedStudents.push(old);
     }
   }
 
-  // 4) Save lại app_state (đúng cột students_json)
+  // 6) Save lại app_state (đúng cột students_json)
   const { error } = await supabase
     .from("app_state")
-    .upsert(
-      { id: "main", students_json: { students: mergedStudents } },
-      { onConflict: "id" }
-    );
+    .upsert({ id: "main", students_json: { students: mergedStudents } }, { onConflict: "id" });
 
   if (error) throw new Error(error.message);
 
   return {
+    ok: true,
+    mode,
+    selectedMonths,
+    monthsAll: monthKeysAll,
+    monthsSynced: monthKeysToSync,
+    newMonthsDetected,
     students: mergedStudents.length,
-    monthsDetected: monthKeys.length,
-    months: monthKeys,
   };
-} // ✅ ĐÓNG doSyncFromSheet()  (dấu này hay bị thiếu)
+}
 
 /**
- * POST: Admin bấm nút trong app (admin-only bằng session cookie)
+ * POST: Admin bấm nút trong app
+ * body:
+ *  - { mode: "new_only" }
+ *  - { mode: "months", selectedMonths: ["2025-08","2025-09"] }
  */
-export async function POST() {
+export async function POST(req: Request) {
   const session = await readSession();
   if (!session || session.role !== "ADMIN") {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 
+  let body: any = {};
   try {
-    const result = await doSyncFromSheet();
-    return NextResponse.json({ ok: true, mode: "admin", ...result });
+    body = await req.json();
+  } catch {}
+
+  const mode: SyncMode = body?.mode === "months" ? "months" : "new_only";
+  const selectedMonths: string[] = Array.isArray(body?.selectedMonths) ? body.selectedMonths : [];
+
+  try {
+    const result = await doSyncFromSheet({ mode, selectedMonths });
+    return NextResponse.json(result);
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Sync failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
   }
 }
 
 /**
  * GET: dùng cho Cron (server-only secret)
  * gọi: /api/sync/sheets?secret=...
+ * (cron chỉ sync tháng mới để an toàn)
  */
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -315,12 +357,9 @@ export async function GET(req: Request) {
   }
 
   try {
-    const result = await doSyncFromSheet();
+    const result = await doSyncFromSheet({ mode: "new_only", selectedMonths: [] });
     return NextResponse.json({ ok: true, mode: "cron", ...result });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Sync failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
   }
 }
