@@ -1,5 +1,5 @@
 "use client";
-
+import StudentChangePassword from "./StudentChangePassword";
 import React, { useMemo, useState } from "react";
 import type { Student, ScoreData, StudyAction } from "../types";
 import { LogOut, CalendarCheck, Check, ChevronLeft, ChevronRight } from "lucide-react";
@@ -442,7 +442,8 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
             </div>
           )}
         </div>
-
+{/* ✅ Đổi mật khẩu */}
+<StudentChangePassword />
         {/* Lời nhắn */}
         <div className="rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white p-5 shadow-sm">
           <div className="text-sm font-bold mb-2">✨ Lời nhắn từ AI Mentor</div>
