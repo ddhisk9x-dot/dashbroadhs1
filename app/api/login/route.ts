@@ -1,36 +1,48 @@
+// app/api/login/route.ts
 import { NextResponse } from "next/server";
-import { getAppState } from "@/lib/supabaseServer";
+import { fetchAccountsFromSheet, getOverridePassword } from "@/lib/accounts";
 import { setSession } from "@/lib/session";
 
 export const runtime = "nodejs";
 
+// ENV optional:
+// ADMIN_USERNAME=admin
+// ADMIN_PASSWORD=123456
+function isAdmin(username: string, password: string) {
+  const au = process.env.ADMIN_USERNAME || "";
+  const ap = process.env.ADMIN_PASSWORD || "";
+  return au && ap && username === au && password === ap;
+}
+
 export async function POST(req: Request) {
-  const { username, password } = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
+  const username = String(body.username || "").trim();
+  const password = String(body.password || "").trim();
 
   if (!username || !password) {
-    return NextResponse.json({ ok: false, error: "Vui lòng nhập đầy đủ thông tin" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Missing username/password" }, { status: 400 });
   }
 
-  // Admin/admin
-  if (String(username).trim() === "admin" && String(password).trim() === "admin") {
-    const res = NextResponse.json({ ok: true, role: "TEACHER", name: "Giáo viên" });
-    setSession(res, { role: "ADMIN", mhs: null });
-    return res;
+  // ADMIN login (nếu dùng)
+  if (isAdmin(username, password)) {
+    await setSession({ role: "ADMIN", mhs: null });
+    return NextResponse.json({ ok: true, role: "ADMIN" });
   }
 
-  // Student: MHS/MHS
-  if (String(username).trim() !== String(password).trim()) {
-    return NextResponse.json({ ok: false, error: "Sai tài khoản hoặc mật khẩu" }, { status: 401 });
+  // STUDENT login: bạn dùng MHS làm tài khoản
+  const accounts = await fetchAccountsFromSheet();
+
+  // ưu tiên key = MHS
+  const acc = accounts.get(username);
+  if (!acc) return NextResponse.json({ ok: false, error: "Account not found" }, { status: 404 });
+
+  const override = await getOverridePassword(username); // username == mhs
+  const effective = override || acc.newPassword || acc.defaultPassword;
+
+  if (password !== effective) {
+    return NextResponse.json({ ok: false, error: "Wrong password" }, { status: 401 });
   }
 
-  const state = await getAppState();
-  const mhs = String(username).trim();
-  const student = (state.students || []).find((s: any) => String(s.mhs).trim() === mhs);
-  if (!student) {
-    return NextResponse.json({ ok: false, error: "Mã học sinh không tồn tại (chưa import dữ liệu?)" }, { status: 401 });
-  }
-
-  const res = NextResponse.json({ ok: true, role: "STUDENT", mhs, name: student.name || "Học sinh" });
-  setSession(res, { role: "STUDENT", mhs });
-  return res;
+  await setSession({ role: "STUDENT", mhs: acc.mhs || username });
+  return NextResponse.json({ ok: true, role: "STUDENT", mhs: acc.mhs || username, name: acc.name || "" });
 }
