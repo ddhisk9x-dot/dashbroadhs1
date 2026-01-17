@@ -1,7 +1,6 @@
-// app/api/login/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { setSession } from "@/lib/session";
+import { getAppState } from "@/lib/supabaseServer";
 import { fetchAccountsFromSheet, getOverridePassword } from "@/lib/accounts";
 
 export const runtime = "nodejs";
@@ -12,61 +11,10 @@ function isAdmin(username: string, password: string) {
   return username === u && password === p;
 }
 
-// fallback legacy: UI ghi mật khẩu = MHS hoặc 123456
-function allowLegacyStudentPassword(mhs: string, password: string) {
-  return password === mhs || password === "123456";
-}
-
 async function findStudentByMhs(mhs: string) {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceKey) throw new Error("Missing Supabase env");
-
-  const supabase = createClient(supabaseUrl, serviceKey);
-
-  const { data, error } = await supabase
-    .from("app_state")
-    .select("students_json")
-    .eq("id", "main")
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-
-  const students = (data?.students_json?.students as any[]) || [];
-  const st = students.find((s) => String(s?.mhs || "").trim() === String(mhs).trim());
-  return st || null;
-}
-
-async function checkStudentPassword(mhs: string, password: string): Promise<boolean> {
-  const username = String(mhs).trim();
-  const pw = String(password).trim();
-
-  // 1) DB override (ưu tiên cao nhất)
-  const override = await getOverridePassword(username).catch(() => null);
-  if (override && pw === override) return true;
-
-  // 2) Sheet accounts (NEW_PASSWORD > DEFAULT_PASSWORD)
-  try {
-    const accounts = await fetchAccountsFromSheet();
-    const acc = accounts.get(username) || accounts.get(String(username).trim());
-    if (acc) {
-      const sheetEffective = (acc.newPassword || acc.defaultPassword || "").trim();
-      if (sheetEffective && pw === sheetEffective) return true;
-
-      // nếu sheet có username riêng, cho phép login bằng username nhưng dùng MHS làm session
-      const u2 = (acc.username || "").trim();
-      if (u2 && u2 !== username) {
-        const acc2 = accounts.get(u2);
-        const eff2 = (acc2?.newPassword || acc2?.defaultPassword || "").trim();
-        if (eff2 && pw === eff2) return true;
-      }
-    }
-  } catch {
-    // ignore (vẫn fallback legacy)
-  }
-
-  // 3) Legacy fallback
-  return allowLegacyStudentPassword(username, pw);
+  const state = await getAppState();
+  const students = (state?.students || []) as any[];
+  return students.find((s) => String(s?.mhs || "").trim() === String(mhs).trim()) || null;
 }
 
 export async function POST(req: Request) {
@@ -92,15 +40,32 @@ export async function POST(req: Request) {
     // ✅ STUDENT (username = MHS)
     const mhs = username;
 
-    // check password from: DB override > accounts sheet (new/default) > legacy
-    const okPw = await checkStudentPassword(mhs, password);
-    if (!okPw) {
-      return NextResponse.json({ ok: false, error: "Sai mật khẩu" }, { status: 401 });
-    }
-
+    // 1) must exist in app_state
     const student = await findStudentByMhs(mhs);
     if (!student) {
       return NextResponse.json({ ok: false, error: "Không tìm thấy học sinh" }, { status: 404 });
+    }
+
+    // 2) read passwords
+    const accounts = await fetchAccountsFromSheet();
+    const acc = accounts.get(mhs); // bạn dùng MHS làm key
+    if (!acc) {
+      return NextResponse.json({ ok: false, error: "Account not found in ACCOUNTS sheet" }, { status: 404 });
+    }
+
+    const override = await getOverridePassword(mhs); // DB override
+    const sheetNew = String(acc.newPassword || "").trim();
+    const sheetDefault = String(acc.defaultPassword || "").trim();
+
+    const effective = (override || sheetNew || sheetDefault || "").trim();
+    if (!effective) {
+      return NextResponse.json({ ok: false, error: "Account has no password set" }, { status: 500 });
+    }
+
+    // ✅ rule: if has override OR sheetNew => ONLY accept that effective
+    // (tức là đổi xong không còn dùng MHS/123456/mặc định nữa)
+    if (password !== effective) {
+      return NextResponse.json({ ok: false, error: "Sai mật khẩu" }, { status: 401 });
     }
 
     const res = NextResponse.json({
