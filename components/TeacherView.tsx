@@ -1,4 +1,5 @@
 "use client";
+import TeacherResetPasswordButton from "./TeacherResetPasswordButton";
 import React, { useMemo, useState, useEffect } from "react";
 import { Student, ScoreData, StudyAction, AIReport } from "../types";
 import { generateStudentReport } from "../services/clientApi";
