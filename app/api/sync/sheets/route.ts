@@ -95,13 +95,20 @@ function toNumberOrNull(v: string | undefined): number | null {
 }
 
 type ScoreData = { month: string; math: number | null; lit: number | null; eng: number | null };
+
+// ✅ cập nhật Student: thêm actionsByMonth để giữ nhiệm vụ/tick theo tháng
 type Student = {
   mhs: string;
   name: string;
   class: string;
   scores: ScoreData[];
-  activeActions: any[];
   aiReport?: any;
+
+  // mới
+  actionsByMonth?: Record<string, any[]>;
+
+  // cũ (giữ tương thích)
+  activeActions?: any[];
 };
 
 function looksLikeHtml(text: string): boolean {
@@ -111,6 +118,65 @@ function looksLikeHtml(text: string): boolean {
 
 type SyncMode = "new_only" | "months";
 type SyncOpts = { mode?: SyncMode; selectedMonths?: string[] };
+
+function isMonthKey(x: string) {
+  return /^\d{4}-\d{2}$/.test(x);
+}
+
+function getLatestMonthFromScores(scores: ScoreData[] | undefined): string {
+  const arr = Array.isArray(scores) ? scores : [];
+  const last = arr[arr.length - 1];
+  const mk = String(last?.month || "").trim();
+  return isMonthKey(mk) ? mk : new Date().toISOString().slice(0, 7);
+}
+
+// ✅ merge action list: giữ ticks nếu action mới trùng (description+frequency)
+function mergeActionsKeepTicks(oldActions: any[] | undefined, newActions: any[] | undefined, mhs: string) {
+  const oldList = Array.isArray(oldActions) ? oldActions : [];
+  const nextList = Array.isArray(newActions) ? newActions : [];
+
+  const keyOf = (a: any) =>
+    `${String(a?.description || "").trim().toLowerCase()}__${String(a?.frequency || "").trim().toLowerCase()}`;
+
+  const oldMap = new Map<string, any>();
+  oldList.forEach((a) => oldMap.set(keyOf(a), a));
+
+  return nextList.map((a, i) => {
+    const desc = String(a?.description || a || "").trim();
+    const freq = String(a?.frequency || "Hàng ngày").trim();
+    const old = oldMap.get(keyOf({ description: desc, frequency: freq }));
+    return {
+      id: old?.id || `${mhs}-${Date.now()}-${i}`,
+      description: desc,
+      frequency: freq,
+      ticks: Array.isArray(old?.ticks) ? old.ticks : [],
+    };
+  });
+}
+
+// ✅ migrate dữ liệu cũ: nếu chỉ có activeActions -> đưa vào actionsByMonth theo tháng mới nhất
+function normalizeActionsStorage(st: Student): Student {
+  const s: Student = { ...st };
+  s.actionsByMonth = (s.actionsByMonth && typeof s.actionsByMonth === "object") ? s.actionsByMonth : {};
+
+  const aa = Array.isArray(s.activeActions) ? s.activeActions : [];
+  if (aa.length) {
+    const mk = getLatestMonthFromScores(s.scores);
+    if (!Array.isArray(s.actionsByMonth![mk]) || s.actionsByMonth![mk]!.length === 0) {
+      s.actionsByMonth![mk] = aa;
+    }
+  }
+
+  // luôn set activeActions = tháng mới nhất để UI cũ vẫn chạy
+  const latest = getLatestMonthFromScores(s.scores);
+  if (Array.isArray(s.actionsByMonth![latest])) {
+    s.activeActions = s.actionsByMonth![latest];
+  } else {
+    s.activeActions = aa;
+  }
+
+  return s;
+}
 
 async function doSyncFromSheet(opts?: SyncOpts) {
   const mode: SyncMode = opts?.mode ?? "new_only";
@@ -161,7 +227,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
   if (idxMhs < 0) {
     const hPreview = headerRow.slice(0, 30).map((x) => String(x ?? "")).join(" | ");
-    throw new Error(`Missing column: MHS (header row 2). Header preview: ${hPreview}`);
+    throw new error(`Missing column: MHS (header row 2). Header preview: ${hPreview}`);
   }
   if (idxName < 0) throw new Error("Missing column: HỌ VÀ TÊN");
   if (idxClass < 0) throw new Error("Missing column: LỚP");
@@ -171,7 +237,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     new Set(
       monthRow
         .map((x) => String(x ?? "").trim())
-        .filter((x) => /^\d{4}-\d{2}$/.test(x))
+        .filter((x) => isMonthKey(x))
     )
   );
 
@@ -190,7 +256,8 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
   if (oldErr) throw new Error(oldErr.message);
 
-  const oldStudents: Student[] = (oldState?.students_json?.students as Student[]) ?? [];
+  const oldStudentsRaw: Student[] = (oldState?.students_json?.students as Student[]) ?? [];
+  const oldStudents: Student[] = oldStudentsRaw.map(normalizeActionsStorage);
 
   const oldMap = new Map<string, Student>();
   oldStudents.forEach((s) => oldMap.set(String(s.mhs).trim(), s));
@@ -208,7 +275,6 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   if (mode === "new_only") {
     monthKeysToSync = monthKeysAll.filter((m) => !oldMonths.has(m));
   } else if (mode === "months") {
-    // sync theo tháng chọn (nếu không chọn gì thì coi như sync all)
     if (selectedMonths.length > 0) {
       const selSet = new Set(selectedMonths);
       monthKeysToSync = monthKeysAll.filter((m) => selSet.has(m));
@@ -238,7 +304,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
     let st = studentMap.get(mhs);
     if (!st) {
-      st = { mhs, name, class: className, scores: [], activeActions: [] };
+      st = { mhs, name, class: className, scores: [], activeActions: [], actionsByMonth: {} };
       studentMap.set(mhs, st);
     } else {
       st.name = name;
@@ -256,48 +322,61 @@ async function doSyncFromSheet(opts?: SyncOpts) {
       const lit = cLit >= 0 ? toNumberOrNull(row[cLit]) : null;
       const eng = cEng >= 0 ? toNumberOrNull(row[cEng]) : null;
 
-      // thiếu điểm thì không tính
       if (math === null && lit === null && eng === null) continue;
 
       const entry: ScoreData = { month: mk, math, lit, eng };
-      const exist = st.scores.findIndex((s) => s.month === mk);
+      const exist = (st.scores || []).findIndex((s) => s.month === mk);
       if (exist >= 0) st.scores[exist] = entry;
       else st.scores.push(entry);
     }
   }
 
-  const newStudents = Array.from(studentMap.values());
+  const newStudents = Array.from(studentMap.values()).map(normalizeActionsStorage);
 
-  // 4) Merge: cập nhật scores/name/class từ sheet, giữ aiReport + activeActions/ticks
+  // 4) Merge: cập nhật scores/name/class từ sheet, giữ aiReport + actionsByMonth + tick
   const mergedStudents: Student[] = newStudents.map((ns) => {
     const old = oldMap.get(String(ns.mhs).trim());
 
-    // Nếu mode = new_only / months => chỉ thay scores của các tháng đó,
-    // còn các tháng khác giữ nguyên từ old (nếu có)
+    // merge scores: chỉ replace monthsToSync, giữ các tháng khác
     let scoresMerged: ScoreData[] = ns.scores ?? [];
-
     if (old?.scores?.length) {
       const replaceMonths = new Set(monthKeysToSync);
       const keepOldScores = old.scores.filter((sc) => !replaceMonths.has(sc.month));
       scoresMerged = [...keepOldScores, ...(ns.scores ?? [])].sort((a, b) => a.month.localeCompare(b.month));
     }
 
-    return {
+    // ✅ merge actionsByMonth: giữ toàn bộ tháng cũ; tháng nào sync mà muốn thay nhiệm vụ thì vẫn GIỮ ticks theo description+frequency
+    const oldABM = (old?.actionsByMonth && typeof old.actionsByMonth === "object") ? old.actionsByMonth : {};
+    const nsABM = (ns.actionsByMonth && typeof ns.actionsByMonth === "object") ? ns.actionsByMonth : {};
+    const mergedABM: Record<string, any[]> = { ...oldABM, ...nsABM };
+
+    // nếu trong sheet update scores cho tháng nào đó nhưng nhiệm vụ tháng đó đã tồn tại, cứ giữ nguyên nhiệm vụ/tick
+    // (nhiệm vụ tháng mới sẽ do AI tạo, không do sync tạo)
+    // -> do đó không overwrite tháng đó.
+
+    const merged: Student = {
       ...ns,
       scores: scoresMerged,
       aiReport: old?.aiReport ?? ns.aiReport,
-      activeActions: old?.activeActions ?? ns.activeActions ?? [],
+      actionsByMonth: mergedABM,
     };
+
+    // activeActions = tháng mới nhất (để UI cũ không lỗi)
+    const latest = getLatestMonthFromScores(merged.scores);
+    if (Array.isArray(merged.actionsByMonth?.[latest])) merged.activeActions = merged.actionsByMonth![latest];
+    else merged.activeActions = old?.activeActions ?? ns.activeActions ?? [];
+
+    return normalizeActionsStorage(merged);
   });
 
-  // 5) Giữ học sinh cũ không có trong sheet mới (để không mất ticks)
+  // 5) Giữ học sinh cũ không có trong sheet mới (để không mất dữ liệu/ticks)
   for (const [mhs, old] of oldMap.entries()) {
     if (!mergedStudents.some((s) => s.mhs === mhs)) {
       mergedStudents.push(old);
     }
   }
 
-  // 6) Save lại app_state (đúng cột students_json)
+  // 6) Save lại app_state
   const { error } = await supabase
     .from("app_state")
     .upsert({ id: "main", students_json: { students: mergedStudents } }, { onConflict: "id" });
@@ -317,9 +396,6 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
 /**
  * POST: Admin bấm nút trong app
- * body:
- *  - { mode: "new_only" }
- *  - { mode: "months", selectedMonths: ["2025-08","2025-09"] }
  */
 export async function POST(req: Request) {
   const session = await readSession();
@@ -346,7 +422,6 @@ export async function POST(req: Request) {
 /**
  * GET: dùng cho Cron (server-only secret)
  * gọi: /api/sync/sheets?secret=...
- * (cron chỉ sync tháng mới để an toàn)
  */
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -359,10 +434,8 @@ export async function GET(req: Request) {
   try {
     const result = await doSyncFromSheet({ mode: "new_only", selectedMonths: [] });
     const { ok: _ok, ...rest } = result as any;
-return NextResponse.json({ ok: true, mode: "admin", ...rest });
-
+    return NextResponse.json({ ok: true, mode: "cron", ...rest });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
   }
 }
-
