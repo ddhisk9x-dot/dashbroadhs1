@@ -231,62 +231,52 @@ async function doSyncFromSheet() {
 
   const newStudents = Array.from(studentMap.values());
 
-  // 4) Save to app_state(main)
-  const supabase = createClient(supabaseUrl, serviceKey);
+const supabase = createClient(supabaseUrl, serviceKey);
 
-  const { error } = await supabase
-    .from("app_state")
-    .upsert({ id: "main", students_json: { students: newStudents } }, { onConflict: "id" });
+// 1) Load dữ liệu cũ
+const { data: oldState, error: oldErr } = await supabase
+  .from("app_state")
+  .select("students_json")
+  .eq("id", "main")
+  .maybeSingle();
 
-  if (error) throw new Error(error.message);
+if (oldErr) throw new Error(oldErr.message);
+
+const oldStudents: Student[] =
+  (oldState?.students_json?.students as Student[]) ?? [];
+
+const oldMap = new Map<string, Student>();
+oldStudents.forEach((s) => oldMap.set(String(s.mhs).trim(), s));
+
+// 2) Merge theo MHS
+const mergedStudents: Student[] = newStudents.map((ns) => {
+  const old = oldMap.get(String(ns.mhs).trim());
 
   return {
-    students: newStudents.length,
-    monthsDetected: monthKeys.length,
-    months: monthKeys,
+    ...ns,
+    // giữ dữ liệu AI + tick nếu có
+    aiReport: old?.aiReport ?? ns.aiReport,
+    activeActions: old?.activeActions ?? ns.activeActions ?? [],
   };
-}
+});
 
-/**
- * POST: Admin bấm nút trong app (admin-only bằng session cookie)
- */
-export async function POST() {
-  const session = await readSession();
-  if (!session || session.role !== "ADMIN") {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-  }
-
-  try {
-    const result = await doSyncFromSheet();
-    return NextResponse.json({ ok: true, mode: "admin", ...result });
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Sync failed" },
-      { status: 500 }
-    );
+// 3) Nếu muốn giữ cả học sinh “cũ” mà sheet mới không còn (tuỳ bạn)
+// - Nếu KHÔNG muốn mất dữ liệu tick của em vắng mặt tháng này, bật phần này:
+for (const [mhs, old] of oldMap.entries()) {
+  if (!mergedStudents.some((s) => s.mhs === mhs)) {
+    mergedStudents.push(old);
   }
 }
 
-/**
- * GET: dùng cho Cron (server-only secret)
- * gọi: /api/sync/sheets?secret=...
- */
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const secret = url.searchParams.get("secret");
+// 4) Save lại
+const { error } = await supabase
+  .from("app_state")
+  .upsert({ id: "main", students_json: { students: mergedStudents } }, { onConflict: "id" });
 
-  if (!process.env.SYNC_SECRET || secret !== process.env.SYNC_SECRET) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
+if (error) throw new Error(error.message);
 
-  try {
-    const result = await doSyncFromSheet();
-    return NextResponse.json({ ok: true, mode: "cron", ...result });
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Sync failed" },
-      { status: 500 }
-    );
-  }
-}
-
+return {
+  students: mergedStudents.length,
+  monthsDetected: monthKeys.length,
+  months: monthKeys,
+};
