@@ -1,8 +1,9 @@
 "use client";
-import TeacherResetPasswordButton from "./TeacherResetPasswordButton";
+
 import React, { useMemo, useState, useEffect } from "react";
 import { Student, ScoreData, StudyAction, AIReport } from "../types";
 import { generateStudentReport } from "../services/clientApi";
+import TeacherResetPasswordButton from "./TeacherResetPasswordButton";
 import {
   Upload,
   Users,
@@ -100,7 +101,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
   // Helper to get last 7 dates
   const getLast7Days = () => {
-    const dates = [];
+    const dates: string[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
@@ -165,9 +166,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
       const newStudentList = Array.from(studentMap.values());
       onImportData(newStudentList);
-      alert(
-        `Nhập thành công! Đã xử lý ${newStudentList.length} học sinh qua ${wb.SheetNames.length} sheet tháng.`
-      );
+      alert(`Nhập thành công! Đã xử lý ${newStudentList.length} học sinh qua ${wb.SheetNames.length} sheet tháng.`);
     };
     reader.readAsBinaryString(file);
   };
@@ -176,7 +175,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
     setLoadingMhs(student.mhs);
     try {
       const report = await generateStudentReport(student);
-      const newActions: StudyAction[] = report.actions.map((a: any, idx: number) => ({
+      const newActions: StudyAction[] = (report.actions || []).map((a: any, idx: number) => ({
         id: `${student.mhs}-${Date.now()}-${idx}`,
         description: a.description,
         frequency: a.frequency,
@@ -197,13 +196,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
       return;
     }
 
-    if (
-      !confirm(
-        `Bạn có chắc muốn tạo báo cáo AI cho ${targets.length} học sinh đang chọn không?`
-      )
-    ) {
-      return;
-    }
+    if (!confirm(`Bạn có chắc muốn tạo báo cáo AI cho ${targets.length} học sinh đang chọn không?`)) return;
 
     setBulkProgress({ current: 0, total: targets.length, currentName: "" });
 
@@ -213,7 +206,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
       try {
         const report = await generateStudentReport(student);
-        const newActions: StudyAction[] = report.actions.map((a: any, idx: number) => ({
+        const newActions: StudyAction[] = (report.actions || []).map((a: any, idx: number) => ({
           id: `${student.mhs}-${Date.now()}-${idx}`,
           description: a.description,
           frequency: a.frequency,
@@ -251,16 +244,14 @@ const TeacherView: React.FC<TeacherViewProps> = ({
       const monthsSynced = data.monthsSynced ?? [];
       const monthsAll = data.monthsAll ?? [];
 
-      // Có tháng mới => done
       if (monthsSynced.length > 0) {
         alert(`Đồng bộ xong: ${data.students ?? 0} HS. Tháng mới: ${monthsSynced.join(", ")}`);
         window.location.reload();
         return;
       }
 
-      // 0 tháng mới => mở modal chọn tháng để sync lại
       setSyncMonthsAll(monthsAll);
-      setSyncSelectedMonths(new Set(monthsAll)); // mặc định chọn tất cả để dễ bấm
+      setSyncSelectedMonths(new Set(monthsAll));
       setSyncMonthSearch("");
       setSyncHint("Không có tháng mới. Bạn có thể chọn tháng để đồng bộ lại.");
       setSyncModalOpen(true);
@@ -413,7 +404,6 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                 </div>
               </div>
 
-              {/* Selected chips */}
               <div className="flex flex-wrap gap-2">
                 {Array.from(syncSelectedMonths)
                   .sort()
@@ -431,13 +421,10 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                     </button>
                   ))}
                 {syncSelectedMonths.size > 12 && (
-                  <span className="text-xs text-slate-500 px-2 py-1.5">
-                    +{syncSelectedMonths.size - 12} tháng nữa
-                  </span>
+                  <span className="text-xs text-slate-500 px-2 py-1.5">+{syncSelectedMonths.size - 12} tháng nữa</span>
                 )}
               </div>
 
-              {/* Month list */}
               <div className="border border-slate-200 rounded-2xl overflow-hidden">
                 <div className="max-h-[320px] overflow-y-auto p-3 bg-slate-50">
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -470,8 +457,8 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               </div>
 
               <div className="text-xs text-slate-500">
-                Đã chọn: <span className="font-bold text-slate-700">{syncSelectedMonths.size}</span> /{" "}
-                {syncMonthsAll.length} tháng
+                Đã chọn: <span className="font-bold text-slate-700">{syncSelectedMonths.size}</span> / {syncMonthsAll.length}{" "}
+                tháng
               </div>
             </div>
 
@@ -526,7 +513,6 @@ const TeacherView: React.FC<TeacherViewProps> = ({
             AI Hàng loạt
           </button>
 
-          {/* ✅ Sync button */}
           <button
             onClick={handleSyncSheet}
             disabled={isSyncing || !!bulkProgress}
@@ -543,10 +529,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
             <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileUpload} />
           </label>
 
-          <button
-            onClick={onLogout}
-            className="text-sm font-semibold text-slate-500 hover:text-red-500 transition-colors px-2 ml-2"
-          >
+          <button onClick={onLogout} className="text-sm font-semibold text-slate-500 hover:text-red-500 transition-colors px-2 ml-2">
             Đăng xuất
           </button>
         </div>
@@ -561,10 +544,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                   <th className="px-6 py-5 w-10">
                     <input
                       type="checkbox"
-                      checked={
-                        filteredStudents.length > 0 &&
-                        filteredStudents.every((s) => selectedMhs.has(s.mhs))
-                      }
+                      checked={filteredStudents.length > 0 && filteredStudents.every((s) => selectedMhs.has(s.mhs))}
                       onChange={(e) => {
                         if (e.target.checked) setSelectedMhs(new Set(filteredStudents.map((s) => s.mhs)));
                         else setSelectedMhs(new Set());
@@ -572,7 +552,14 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                       title="Chọn/Bỏ chọn tất cả học sinh đang hiển thị"
                     />
                   </th>
+
                   <th className="px-6 py-5">MHS</th>
+
+                  {/* ✅ NEW: reset password column between MHS and Name */}
+                  <th className="px-6 py-5 w-14 text-center" title="Reset mật khẩu">
+                    Reset
+                  </th>
+
                   <th className="px-6 py-5">Họ và Tên</th>
                   <th className="px-6 py-5">Lớp</th>
                   <th className="px-6 py-5">Điểm TB (Gần nhất)</th>
@@ -585,21 +572,18 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               <tbody className="divide-y divide-slate-100">
                 {filteredStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-6 py-10 text-center text-slate-400 italic">
+                    <td colSpan={9} className="px-6 py-10 text-center text-slate-400 italic">
                       Không tìm thấy học sinh nào. Hãy nhập Excel hoặc Đồng bộ Sheet.
                     </td>
                   </tr>
                 ) : (
                   filteredStudents.map((student) => {
-                    <TeacherResetPasswordButton mhs={student.mhs} />
                     const lastScore = student.scores?.[student.scores.length - 1];
                     const scores = [lastScore?.math, lastScore?.lit, lastScore?.eng].filter(
                       (s) => s !== null && s !== undefined
                     ) as number[];
                     const avg =
-                      scores.length > 0
-                        ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
-                        : "N/A";
+                      scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : "N/A";
 
                     const totalTicks = (student.activeActions ?? []).reduce(
                       (acc, act) => acc + (act.ticks ?? []).filter((t: any) => t.completed).length,
@@ -607,10 +591,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                     );
 
                     return (
-                      <tr
-                        key={student.mhs}
-                        className="hover:bg-indigo-50/30 transition-colors duration-200 group"
-                      >
+                      <tr key={student.mhs} className="hover:bg-indigo-50/30 transition-colors duration-200 group">
                         <td className="px-6 py-4">
                           <input
                             type="checkbox"
@@ -626,12 +607,14 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                           />
                         </td>
 
-                        <td className="px-6 py-4 text-sm font-mono text-slate-500 bg-transparent">
-                          {student.mhs}
+                        <td className="px-6 py-4 text-sm font-mono text-slate-500 bg-transparent">{student.mhs}</td>
+
+                        {/* ✅ NEW: Reset button cell */}
+                        <td className="px-6 py-4 text-center">
+                          <TeacherResetPasswordButton mhs={student.mhs} />
                         </td>
-                        <td className="px-6 py-4 text-sm font-semibold text-slate-800">
-                          {student.name}
-                        </td>
+
+                        <td className="px-6 py-4 text-sm font-semibold text-slate-800">{student.name}</td>
                         <td className="px-6 py-4 text-sm text-slate-600">{student.class}</td>
 
                         <td className="px-6 py-4 text-sm text-slate-600">
@@ -648,9 +631,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                           >
                             {avg}
                           </span>
-                          {lastScore && (
-                            <span className="text-[10px] text-slate-400 ml-2">({lastScore.month})</span>
-                          )}
+                          {lastScore && <span className="text-[10px] text-slate-400 ml-2">({lastScore.month})</span>}
                         </td>
 
                         <td className="px-6 py-4">
@@ -732,13 +713,11 @@ const TeacherView: React.FC<TeacherViewProps> = ({
       {viewingStudent && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-opacity duration-300">
           <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col transform transition-transform duration-300 scale-100">
-            {/* Modal Header */}
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white z-10">
               <div>
                 <h2 className="text-xl font-bold text-slate-800">{viewingStudent.name}</h2>
                 <p className="text-sm text-slate-500 mt-1">
-                  MHS: <span className="font-mono text-indigo-600">{viewingStudent.mhs}</span> | Lớp:{" "}
-                  {viewingStudent.class}
+                  MHS: <span className="font-mono text-indigo-600">{viewingStudent.mhs}</span> | Lớp: {viewingStudent.class}
                 </p>
               </div>
               <button
@@ -749,14 +728,11 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               </button>
             </div>
 
-            {/* Tabs */}
             <div className="flex border-b border-slate-100 px-6">
               <button
                 onClick={() => setActiveTab("report")}
                 className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${
-                  activeTab === "report"
-                    ? "border-indigo-600 text-indigo-600"
-                    : "border-transparent text-slate-500 hover:text-slate-700"
+                  activeTab === "report" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"
                 }`}
               >
                 <div className="flex items-center gap-2">
@@ -766,9 +742,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               <button
                 onClick={() => setActiveTab("tracking")}
                 className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${
-                  activeTab === "tracking"
-                    ? "border-indigo-600 text-indigo-600"
-                    : "border-transparent text-slate-500 hover:text-slate-700"
+                  activeTab === "tracking" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"
                 }`}
               >
                 <div className="flex items-center gap-2">
@@ -778,7 +752,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
             </div>
 
             <div className="p-8 space-y-6 overflow-y-auto custom-scrollbar bg-[#fcfcfc] flex-1">
-              {/* TAB 1: AI REPORT */}
+              {/* TAB 1 */}
               {activeTab === "report" &&
                 (viewingStudent.aiReport ? (
                   <>
@@ -828,29 +802,21 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                           onChange={(e) => setEditForm({ ...editForm, overview: e.target.value })}
                         />
                       ) : (
-                        <p className="text-sm text-slate-800 leading-relaxed">
-                          {viewingStudent.aiReport.overview}
-                        </p>
+                        <p className="text-sm text-slate-800 leading-relaxed">{viewingStudent.aiReport.overview}</p>
                       )}
                     </div>
 
                     <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100">
-                      <h3 className="font-bold text-sm uppercase tracking-wide text-indigo-700 mb-3">
-                        Lời nhắn cho Học sinh
-                      </h3>
+                      <h3 className="font-bold text-sm uppercase tracking-wide text-indigo-700 mb-3">Lời nhắn cho Học sinh</h3>
                       {isEditing ? (
                         <textarea
                           className="w-full p-3 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-700 bg-white"
                           rows={3}
                           value={editForm.messageToStudent}
-                          onChange={(e) =>
-                            setEditForm({ ...editForm, messageToStudent: e.target.value })
-                          }
+                          onChange={(e) => setEditForm({ ...editForm, messageToStudent: e.target.value })}
                         />
                       ) : (
-                        <p className="text-sm text-indigo-900 italic">
-                          "{viewingStudent.aiReport.messageToStudent}"
-                        </p>
+                        <p className="text-sm text-indigo-900 italic">"{viewingStudent.aiReport.messageToStudent}"</p>
                       )}
                     </div>
 
@@ -864,9 +830,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                           className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-700 bg-slate-50"
                           rows={3}
                           value={editForm.teacherNotes}
-                          onChange={(e) =>
-                            setEditForm({ ...editForm, teacherNotes: e.target.value })
-                          }
+                          onChange={(e) => setEditForm({ ...editForm, teacherNotes: e.target.value })}
                         />
                       ) : (
                         <p className="text-sm text-slate-600">{viewingStudent.aiReport.teacherNotes}</p>
@@ -874,11 +838,9 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                     </div>
 
                     <div>
-                      <h3 className="font-bold text-sm uppercase tracking-wide text-slate-600 mb-3 ml-1">
-                        Kế hoạch Học tập
-                      </h3>
+                      <h3 className="font-bold text-sm uppercase tracking-wide text-slate-600 mb-3 ml-1">Kế hoạch Học tập</h3>
                       <div className="text-sm text-slate-600 bg-white border border-slate-100 rounded-2xl shadow-sm divide-y divide-slate-50">
-                        {viewingStudent.aiReport.studyPlan.map((p: any, i: number) => (
+                        {(viewingStudent.aiReport.studyPlan || []).map((p: any, i: number) => (
                           <div key={i} className="p-4 grid grid-cols-4 gap-4">
                             <span className="font-bold text-slate-400 text-xs uppercase pt-1">{p.day}</span>
                             <span className="text-indigo-600 font-semibold">{p.subject}</span>
@@ -895,7 +857,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                   </div>
                 ))}
 
-              {/* TAB 2: TRACKING (7 ngày hiện tại) */}
+              {/* TAB 2 */}
               {activeTab === "tracking" && (
                 <div>
                   <h3 className="font-bold text-slate-800 mb-6">Tiến độ Thói quen (7 ngày qua)</h3>
@@ -915,26 +877,22 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                               </span>
                             </div>
                             <div className="text-right">
-                              <span className="text-2xl font-bold text-indigo-600">{(action.ticks ?? []).length}</span>
+                              <span className="text-2xl font-bold text-indigo-600">
+                                {(action.ticks ?? []).filter((t: any) => t.completed).length}
+                              </span>
                               <p className="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Tổng Tick</p>
                             </div>
                           </div>
 
                           <div className="flex items-center justify-between gap-2">
                             {last7Days.map((dateString) => {
-                              const isDone = (action.ticks ?? []).some(
-                                (t: any) => t.date === dateString && t.completed
-                              );
+                              const isDone = (action.ticks ?? []).some((t: any) => t.date === dateString && t.completed);
                               const dateObj = new Date(dateString);
                               const dayLabel = `${dateObj.getDate()}/${dateObj.getMonth() + 1}`;
 
                               return (
                                 <div key={dateString} className="flex flex-col items-center gap-2 flex-1">
-                                  <div
-                                    className={`w-full h-2 rounded-full transition-all duration-500 ${
-                                      isDone ? "bg-emerald-500" : "bg-slate-100"
-                                    }`}
-                                  />
+                                  <div className={`w-full h-2 rounded-full transition-all duration-500 ${isDone ? "bg-emerald-500" : "bg-slate-100"}`} />
                                   <div
                                     className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-medium transition-all ${
                                       isDone
