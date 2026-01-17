@@ -10,6 +10,10 @@ import {
 
 export const runtime = "nodejs";
 
+function norm(v: any): string {
+  return String(v ?? "").trim();
+}
+
 export async function POST(req: Request) {
   const session = await getSession();
   if (!session || session.role !== "STUDENT" || !session.mhs) {
@@ -17,27 +21,46 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const currentPassword = String(body.currentPassword || "").trim();
-  const newPassword = String(body.newPassword || "").trim();
+  const currentPassword = norm(body.currentPassword);
+  const newPassword = norm(body.newPassword);
 
   if (!currentPassword || !newPassword) {
-    return NextResponse.json({ ok: false, error: "Missing currentPassword/newPassword" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Missing currentPassword/newPassword" },
+      { status: 400 }
+    );
   }
 
-  const username = String(session.mhs).trim(); // bạn dùng MHS làm tài khoản
+  // Bạn dùng MHS làm tài khoản
+  const username = norm(session.mhs);
 
   const accounts = await fetchAccountsFromSheet();
   const acc = accounts.get(username);
-  if (!acc) return NextResponse.json({ ok: false, error: "Account not found" }, { status: 404 });
 
-  const override = await getOverridePassword(username);
-  const effective = override || acc.newPassword || acc.defaultPassword;
+  if (!acc) {
+    return NextResponse.json({ ok: false, error: "Account not found" }, { status: 404 });
+  }
 
-  if (currentPassword !== effective) {
+  // Password hiện tại hợp lệ theo thứ tự ưu tiên:
+  // 1) DB override (nếu có)
+  // 2) NEW_PASSWORD (trên sheet)
+  // 3) DEFAULT_PASSWORD (trên sheet)
+  // 4) fallback = MHS (username)
+  const override = norm(await getOverridePassword(username));
+
+  const effective =
+    override ||
+    norm((acc as any).newPassword) ||
+    norm((acc as any).defaultPassword) ||
+    norm((acc as any).mhs) ||
+    username;
+
+  if (norm(currentPassword) !== norm(effective)) {
     return NextResponse.json({ ok: false, error: "Wrong current password" }, { status: 400 });
   }
 
-  await setOverridePassword(username, acc.mhs || username, newPassword, "student_change");
+  // Lưu cả DB override + ghi lại NEW_PASSWORD trên sheet
+  await setOverridePassword(username, norm((acc as any).mhs) || username, newPassword, "student_change");
   await writeSheetNewPassword(username, newPassword, "student_change");
 
   return NextResponse.json({ ok: true });
