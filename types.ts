@@ -1,7 +1,7 @@
 export enum Role {
-  TEACHER = 'TEACHER',
-  STUDENT = 'STUDENT',
-  ADMIN = 'ADMIN'
+  TEACHER = "TEACHER",
+  STUDENT = "STUDENT",
+  ADMIN = "ADMIN",
 }
 
 export interface User {
@@ -11,7 +11,7 @@ export interface User {
 }
 
 export interface ScoreData {
-  month: string; // e.g., "2023-09" or "Tháng 9"
+  month: string; // e.g., "2025-08"
   math: number | null;
   lit: number | null;
   eng: number | null;
@@ -25,12 +25,12 @@ export interface TaskTick {
 export interface StudyAction {
   id: string;
   description: string;
-  frequency: string; // e.g., "Daily", "Weekly"
+  frequency: string; // e.g., "Hàng ngày", "3 lần/tuần"
   ticks: TaskTick[];
 }
 
 export interface StudySession {
-  day: string; // e.g., "Monday"
+  day: string; // e.g., "Thứ 2"
   subject: string;
   duration: string;
   content: string;
@@ -39,8 +39,7 @@ export interface StudySession {
 export interface AIReport {
   generatedAt: string;
   overview: string;
-  // Fixed: riskLevel should match the Vietnamese output from the Gemini prompt/schema
-  riskLevel: 'Thấp' | 'Trung bình' | 'Cao';
+  riskLevel: "Thấp" | "Trung bình" | "Cao";
   strengths: string[];
   risks: string[];
   bySubject: {
@@ -52,7 +51,7 @@ export interface AIReport {
   studyPlan: StudySession[];
   messageToStudent: string;
   teacherNotes: string;
-  disclaimer: string;
+  disclaimer?: string; // optional để không vỡ dữ liệu cũ
 }
 
 export interface Student {
@@ -61,5 +60,10 @@ export interface Student {
   class: string;
   scores: ScoreData[];
   aiReport?: AIReport;
+
+  // cũ (vẫn giữ để tương thích)
   activeActions: StudyAction[];
+
+  // ✅ mới: nhiệm vụ theo tháng (key: "YYYY-MM")
+  actionsByMonth?: Record<string, StudyAction[]>;
 }
