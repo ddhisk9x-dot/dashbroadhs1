@@ -1,4 +1,5 @@
 "use client";
+
 import React, { useMemo, useState, useEffect } from "react";
 import { Student, ScoreData, StudyAction, AIReport } from "../types";
 import { generateStudentReport } from "../services/clientApi";
@@ -28,71 +29,52 @@ interface TeacherViewProps {
   onLogout: () => void;
 }
 
-function toISODate(d: Date) {
-  return d.toISOString().split("T")[0];
-}
-
 function getLastNDays(n: number) {
   const dates: string[] = [];
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
-    dates.push(toISODate(d));
+    dates.push(d.toISOString().split("T")[0]);
   }
   return dates;
 }
 
-function getDaysInMonth(monthKey: string) {
-  // monthKey: YYYY-MM
-  const [y, m] = monthKey.split("-").map((x) => parseInt(x, 10));
-  const first = new Date(y, m - 1, 1);
-  const last = new Date(y, m, 0);
-  const out: string[] = [];
-  for (let day = 1; day <= last.getDate(); day++) {
-    out.push(toISODate(new Date(y, m - 1, day)));
-  }
-  return out;
+function latestMonthKey(student?: Student) {
+  const mk =
+    student?.scores?.[student.scores.length - 1]?.month ||
+    new Date().toISOString().slice(0, 7);
+  return String(mk).trim();
 }
 
-function monthLabel(monthKey: string) {
-  // 2025-08 -> 08/2025
-  const [y, m] = monthKey.split("-");
-  return `${m}/${y}`;
-}
-
-function extractMonthFromISO(date: string) {
-  // YYYY-MM-DD -> YYYY-MM
-  return date.slice(0, 7);
-}
-
-function safeActionsByMonth(student?: Student) {
+function safeActionsByMonth(student?: Student): Record<string, StudyAction[]> {
   if (!student) return {};
-  if (student.actionsByMonth && typeof student.actionsByMonth === "object") return student.actionsByMonth;
+  const anyStudent = student as any;
+
+  // nếu đã có schema mới
+  if (anyStudent.actionsByMonth && typeof anyStudent.actionsByMonth === "object") {
+    return anyStudent.actionsByMonth as Record<string, StudyAction[]>;
+  }
+
   // migrate từ activeActions (cũ) vào tháng gần nhất
-  const latest = (student.scores?.[student.scores.length - 1]?.month || new Date().toISOString().slice(0, 7)).trim();
+  const latest = latestMonthKey(student);
   const aa = Array.isArray(student.activeActions) ? student.activeActions : [];
-  if (aa.length) return { [latest]: aa };
-  return {};
+  return aa.length ? { [latest]: aa } : {};
 }
 
-const TeacherView: React.FC<TeacherViewProps> = ({
+export default function TeacherView({
   students,
   onImportData,
   onUpdateStudentReport,
   onLogout,
-}) => {
+}: TeacherViewProps) {
   const [loadingMhs, setLoadingMhs] = useState<string | null>(null);
   const [viewingMhs, setViewingMhs] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState<"report" | "tracking">("report");
   const [selectedMhs, setSelectedMhs] = useState<Set<string>>(new Set());
 
-  const [isSyncing, setIsSyncing] = useState(false);
-
-  // Bulk Generation State
   const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number; currentName: string } | null>(null);
 
-  // Editing State
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<{ overview: string; messageToStudent: string; teacherNotes: string }>({
     overview: "",
@@ -100,18 +82,24 @@ const TeacherView: React.FC<TeacherViewProps> = ({
     teacherNotes: "",
   });
 
-  // ✅ Tracking range mode
-  const [trackMode, setTrackMode] = useState<"month" | "recent">("month");
-  const [rangeDays, setRangeDays] = useState<7 | 30 | 90>(30);
+  // ✅ tracking controls
+  const [rangeDays, setRangeDays] = useState<7 | 30 | 90>(7);
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
+
+  // ✅ NEW: Sync state
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const viewingStudent = students.find((s) => s.mhs === viewingMhs);
 
-  const filteredStudents = students.filter(
-    (s) =>
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.mhs.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.class.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredStudents = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+    return students.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.mhs.toLowerCase().includes(q) ||
+        s.class.toLowerCase().includes(q)
+    );
+  }, [students, searchTerm]);
 
   useEffect(() => {
     if (viewingStudent && viewingStudent.aiReport) {
@@ -124,38 +112,20 @@ const TeacherView: React.FC<TeacherViewProps> = ({
     }
   }, [viewingStudent]);
 
-  const actionsByMonth = useMemo(() => safeActionsByMonth(viewingStudent), [viewingStudent]);
-
-  const availableMonths = useMemo(() => {
-    const set = new Set<string>();
-    (viewingStudent?.scores || []).forEach((s) => {
-      if (/^\d{4}-\d{2}$/.test(String(s.month || "").trim())) set.add(String(s.month).trim());
-    });
-    Object.keys(actionsByMonth || {}).forEach((k) => {
-      if (/^\d{4}-\d{2}$/.test(k)) set.add(k);
-    });
-    const arr = Array.from(set);
-    arr.sort(); // tăng dần
-    return arr;
-  }, [viewingStudent, actionsByMonth]);
-
-  const defaultMonth = useMemo(() => {
-    const lastScoreMonth = viewingStudent?.scores?.[viewingStudent.scores.length - 1]?.month;
-    const mk = String(lastScoreMonth || "").trim();
-    if (/^\d{4}-\d{2}$/.test(mk)) return mk;
-    return availableMonths[availableMonths.length - 1] || new Date().toISOString().slice(0, 7);
-  }, [viewingStudent, availableMonths]);
-
-  const [selectedMonth, setSelectedMonth] = useState<string>(new Date().toISOString().slice(0, 7));
-
+  // set default month in modal
   useEffect(() => {
-    if (defaultMonth) setSelectedMonth(defaultMonth);
-  }, [defaultMonth]);
+    if (!viewingStudent) return;
+    const mk = latestMonthKey(viewingStudent);
+    setSelectedMonth(mk);
+  }, [viewingStudent]);
 
-  const dateColumns = useMemo(() => {
-    if (trackMode === "recent") return getLastNDays(rangeDays);
-    return getDaysInMonth(selectedMonth);
-  }, [trackMode, rangeDays, selectedMonth]);
+  const dates = useMemo(() => getLastNDays(rangeDays), [rangeDays]);
+
+  const allMonthsInSystem = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of students) for (const sc of s.scores ?? []) if (sc?.month) set.add(sc.month);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [students]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -184,7 +154,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
           const parseScore = (val: any) => {
             if (val === undefined || val === null || val === "") return null;
             const num = parseFloat(val);
-            return isNaN(num) ? null : num;
+            return Number.isNaN(num) ? null : num;
           };
 
           const math = parseScore(row[5]);
@@ -197,16 +167,16 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
           let student = studentMap.get(mhs);
           if (!student) {
-            student = { mhs, name, class: className, scores: [], activeActions: [], actionsByMonth: {} };
+            student = { mhs, name, class: className, scores: [], activeActions: [] };
             studentMap.set(mhs, student);
           } else {
             student.name = name;
             student.class = className;
           }
 
-          const existingScoreIndex = (student.scores || []).findIndex((s) => s.month === sheetName);
-          if (existingScoreIndex >= 0) student.scores[existingScoreIndex] = scoreEntry;
-          else student.scores = [...(student.scores || []), scoreEntry];
+          const existing = student.scores.findIndex((s) => s.month === sheetName);
+          if (existing >= 0) student.scores[existing] = scoreEntry;
+          else student.scores.push(scoreEntry);
         }
       });
 
@@ -214,6 +184,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
       onImportData(newStudentList);
       alert(`Nhập thành công! Đã xử lý ${newStudentList.length} học sinh qua ${wb.SheetNames.length} sheet tháng.`);
     };
+
     reader.readAsBinaryString(file);
   };
 
@@ -221,15 +192,12 @@ const TeacherView: React.FC<TeacherViewProps> = ({
     setLoadingMhs(student.mhs);
     try {
       const report = await generateStudentReport(student);
-
-      // ✅ tạo actions mới (mặc định vẫn dùng callback cũ)
       const newActions: StudyAction[] = (report.actions || []).map((a: any, idx: number) => ({
         id: `${student.mhs}-${Date.now()}-${idx}`,
         description: a.description,
         frequency: a.frequency,
         ticks: [],
       }));
-
       onUpdateStudentReport(student.mhs, report, newActions);
     } catch {
       alert("Không thể tạo báo cáo. Vui lòng kiểm tra API Key.");
@@ -263,16 +231,17 @@ const TeacherView: React.FC<TeacherViewProps> = ({
         }));
         onUpdateStudentReport(student.mhs, report, newActions);
       } catch (err) {
-        console.error(`Failed to generate for ${student.mhs}`, err);
+        console.error("Bulk generate failed:", student.mhs, err);
       }
 
       if (i < targets.length - 1) await new Promise((r) => setTimeout(r, 2000));
     }
 
     setBulkProgress(null);
-    alert("Hoàn tất tạo báo cáo hàng loạt!");
+    alert("Hoàn tất!");
   };
 
+  // ✅ Sync Google Sheet (admin-only)
   const handleSyncSheet = async () => {
     setIsSyncing(true);
     try {
@@ -284,7 +253,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
         return;
       }
 
-      alert(`Đồng bộ xong: ${data.students} HS, ${data.monthsDetected} tháng`);
+      alert(`Đồng bộ xong: ${data.students} HS`);
       window.location.reload();
     } catch (e: any) {
       alert(`Lỗi đồng bộ: ${e?.message || "Network error"}`);
@@ -301,153 +270,23 @@ const TeacherView: React.FC<TeacherViewProps> = ({
       messageToStudent: editForm.messageToStudent,
       teacherNotes: editForm.teacherNotes,
     };
-    onUpdateStudentReport(viewingStudent.mhs, updatedReport, viewingStudent.activeActions || []);
+    onUpdateStudentReport(viewingStudent.mhs, updatedReport, viewingStudent.activeActions);
     setIsEditing(false);
   };
 
-  // ✅ helpers for tracking view
-  const monthActions: StudyAction[] = useMemo(() => {
+  // Tracking actions for current viewing student + selected month
+  const trackingActions: StudyAction[] = useMemo(() => {
     if (!viewingStudent) return [];
-    const abm = safeActionsByMonth(viewingStudent);
-    if (trackMode === "recent") {
-      // recent: show union actions in last N days (simple: use selectedMonth if exists, else latest)
-      const mk = selectedMonth || defaultMonth;
-      return (abm[mk] || viewingStudent.activeActions || []) as StudyAction[];
-    }
-    return (abm[selectedMonth] || []) as StudyAction[];
-  }, [viewingStudent, selectedMonth, trackMode, defaultMonth]);
-
-  const renderTracking = () => {
-    if (!viewingStudent) return null;
-
-    const actions = monthActions;
-
-    if (!actions.length) {
-      return (
-        <div className="text-center py-10 text-slate-500 italic bg-slate-50 rounded-xl border border-dashed border-slate-200">
-          Chưa có nhiệm vụ cho khoảng đang xem.
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-6">
-        {/* controls */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setTrackMode("month")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-                trackMode === "month" ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200"
-              }`}
-            >
-              Theo tháng
-            </button>
-            <button
-              onClick={() => setTrackMode("recent")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-                trackMode === "recent" ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200"
-              }`}
-            >
-              Gần đây
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {trackMode === "month" ? (
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-xl bg-white text-sm"
-                title="Chọn tháng để xem nhiệm vụ + tick"
-              >
-                {availableMonths.map((mk) => (
-                  <option key={mk} value={mk}>
-                    {monthLabel(mk)}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="flex items-center gap-2">
-                {[7, 30, 90].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setRangeDays(n as 7 | 30 | 90)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-                      rangeDays === n ? "bg-emerald-600 text-white border-emerald-600" : "bg-white text-slate-600 border-slate-200"
-                    }`}
-                  >
-                    {n} ngày
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {actions.map((action) => {
-          const completedInRange = (action.ticks || []).filter(
-            (t) => t.completed && dateColumns.includes(t.date)
-          ).length;
-
-          return (
-            <div key={action.id} className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h4 className="font-semibold text-slate-700">{action.description}</h4>
-                  <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded mt-1 inline-block">
-                    {action.frequency}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-2xl font-bold text-indigo-600">{completedInRange}</span>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide font-bold">TICK ({trackMode === "month" ? "tháng" : "gần đây"})</p>
-                </div>
-              </div>
-
-              {/* ✅ cuộn ngang theo ngày */}
-              <div className="overflow-x-auto">
-                <div className="min-w-[720px] flex items-center gap-2">
-                  {dateColumns.map((dateString) => {
-                    const isDone = (action.ticks || []).some((t) => t.date === dateString && t.completed);
-                    const dateObj = new Date(dateString);
-                    const dayLabel = `${dateObj.getDate()}/${dateObj.getMonth() + 1}`;
-
-                    return (
-                      <div key={dateString} className="flex flex-col items-center gap-2 w-10 shrink-0">
-                        <div
-                          className={`w-full h-2 rounded-full transition-all duration-300 ${
-                            isDone ? "bg-emerald-500" : "bg-slate-100"
-                          }`}
-                          title={isDone ? `Hoàn thành: ${dateString}` : `Chưa làm: ${dateString}`}
-                        ></div>
-                        <div
-                          className={`w-9 h-9 rounded-lg flex items-center justify-center text-xs font-medium transition-all ${
-                            isDone
-                              ? "bg-emerald-100 text-emerald-700"
-                              : "bg-slate-50 text-slate-400 border border-slate-100"
-                          }`}
-                        >
-                          {isDone ? <Check size={16} /> : <span className="text-[10px]">{dayLabel}</span>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
+    const map = safeActionsByMonth(viewingStudent);
+    const mk = selectedMonth || latestMonthKey(viewingStudent);
+    return Array.isArray(map[mk]) ? map[mk] : (viewingStudent.activeActions || []);
+  }, [viewingStudent, selectedMonth]);
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-col font-sans relative">
-      {/* Bulk Progress Overlay */}
       {bulkProgress && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center">
-          <div className="bg-white p-8 rounded-3xl shadow-2xl max-w-md w-full text-center animate-in fade-in zoom-in duration-300">
+          <div className="bg-white p-8 rounded-3xl shadow-2xl max-w-md w-full text-center">
             <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
               <Sparkles size={32} />
             </div>
@@ -460,15 +299,13 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               <div
                 className="bg-indigo-600 h-4 rounded-full transition-all duration-500 ease-out"
                 style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }}
-              ></div>
+              />
             </div>
+
             <div className="flex justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
               <span>Tiến độ</span>
-              <span>
-                {bulkProgress.current} / {bulkProgress.total}
-              </span>
+              <span>{bulkProgress.current} / {bulkProgress.total}</span>
             </div>
-            <p className="text-xs text-slate-400 mt-4 italic">Vui lòng không tắt trình duyệt...</p>
           </div>
         </div>
       )}
@@ -496,7 +333,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
           <button
             onClick={handleBulkGenerate}
             disabled={!!bulkProgress}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold rounded-xl transition-all shadow-md hover:shadow-lg hover:shadow-indigo-500/30 transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold rounded-xl transition-all shadow-md disabled:opacity-50"
           >
             <Sparkles size={18} />
             AI Hàng loạt
@@ -505,14 +342,13 @@ const TeacherView: React.FC<TeacherViewProps> = ({
           <button
             onClick={handleSyncSheet}
             disabled={isSyncing || !!bulkProgress}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Đồng bộ dữ liệu từ Google Sheet (Admin)"
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-all shadow-md disabled:opacity-50"
           >
             {isSyncing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
             Đồng bộ Sheet
           </button>
 
-          <label className="flex items-center gap-2 px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold rounded-xl cursor-pointer transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+          <label className="flex items-center gap-2 px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold rounded-xl cursor-pointer transition-all shadow-md">
             <Upload size={18} />
             Nhập Excel
             <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileUpload} />
@@ -538,7 +374,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                         if (e.target.checked) setSelectedMhs(new Set(filteredStudents.map((s) => s.mhs)));
                         else setSelectedMhs(new Set());
                       }}
-                      title="Chọn/Bỏ chọn tất cả học sinh đang hiển thị"
+                      title="Chọn/Bỏ chọn tất cả"
                     />
                   </th>
                   <th className="px-6 py-5">MHS</th>
@@ -555,24 +391,17 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                 {filteredStudents.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-6 py-10 text-center text-slate-400 italic">
-                      Không tìm thấy học sinh nào. Hãy nhập file Excel hoặc Đồng bộ Sheet.
+                      Không tìm thấy học sinh nào.
                     </td>
                   </tr>
                 ) : (
                   filteredStudents.map((student) => {
-                    const lastScore = (student.scores || [])[student.scores.length - 1];
-                    const scores = [lastScore?.math, lastScore?.lit, lastScore?.eng].filter(
-                      (s) => s !== null && s !== undefined
-                    ) as number[];
+                    const lastScore = student.scores[student.scores.length - 1];
+                    const scores = [lastScore?.math, lastScore?.lit, lastScore?.eng].filter((s) => s !== null && s !== undefined) as number[];
+                    const avg = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : "N/A";
 
-                    const avg =
-                      scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : "N/A";
-
-                    // tổng tick nhanh: lấy tháng mới nhất nếu có actionsByMonth
-                    const abm = safeActionsByMonth(student);
-                    const latest = String(lastScore?.month || new Date().toISOString().slice(0, 7)).trim();
-                    const actionsLatest = (abm[latest] || student.activeActions || []) as StudyAction[];
-                    const totalTicks = actionsLatest.reduce((acc, act) => acc + (act.ticks || []).filter((t) => t.completed).length, 0);
+                    // ✅ progress = tổng tick completed của activeActions (fallback)
+                    const totalTicks = (student.activeActions || []).reduce((acc, act) => acc + (act.ticks || []).filter((t: any) => t.completed).length, 0);
 
                     return (
                       <tr key={student.mhs} className="hover:bg-indigo-50/30 transition-colors duration-200 group">
@@ -591,22 +420,16 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                           />
                         </td>
 
-                        <td className="px-6 py-4 text-sm font-mono text-slate-500 bg-transparent">{student.mhs}</td>
+                        <td className="px-6 py-4 text-sm font-mono text-slate-500">{student.mhs}</td>
                         <td className="px-6 py-4 text-sm font-semibold text-slate-800">{student.name}</td>
                         <td className="px-6 py-4 text-sm text-slate-600">{student.class}</td>
 
                         <td className="px-6 py-4 text-sm text-slate-600">
-                          <span
-                            className={`px-2.5 py-1 rounded-lg font-bold text-xs ${
-                              avg === "N/A"
-                                ? "bg-slate-100 text-slate-500"
-                                : Number(avg) >= 12
-                                ? "bg-emerald-100 text-emerald-700"
-                                : Number(avg) >= 8
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-rose-100 text-rose-700"
-                            }`}
-                          >
+                          <span className={`px-2.5 py-1 rounded-lg font-bold text-xs ${
+                            avg === "N/A" ? "bg-slate-100 text-slate-500" :
+                            Number(avg) >= 8 ? "bg-emerald-100 text-emerald-700" :
+                            Number(avg) >= 5 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"
+                          }`}>
                             {avg}
                           </span>
                           {lastScore && <span className="text-[10px] text-slate-400 ml-2">({lastScore.month})</span>}
@@ -614,15 +437,11 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
                         <td className="px-6 py-4">
                           {student.aiReport ? (
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${
-                                student.aiReport.riskLevel === "Cao"
-                                  ? "bg-red-50 text-red-600 border-red-100"
-                                  : student.aiReport.riskLevel === "Trung bình"
-                                  ? "bg-orange-50 text-orange-600 border-orange-100"
-                                  : "bg-emerald-50 text-emerald-600 border-emerald-100"
-                              }`}
-                            >
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${
+                              student.aiReport.riskLevel === "Cao" ? "bg-red-50 text-red-600 border-red-100" :
+                              student.aiReport.riskLevel === "Trung bình" ? "bg-orange-50 text-orange-600 border-orange-100" :
+                              "bg-emerald-50 text-emerald-600 border-emerald-100"
+                            }`}>
                               {student.aiReport.riskLevel === "Cao" && <AlertTriangle size={12} />}
                               {student.aiReport.riskLevel}
                             </span>
@@ -632,9 +451,9 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                         </td>
 
                         <td className="px-6 py-4 text-sm text-slate-600">
-                          {actionsLatest.length > 0 ? (
-                            <div className="w-full bg-slate-100 rounded-full h-2 max-w-[100px]" title={`${totalTicks} tick hoàn thành`}>
-                              <div className="bg-indigo-500 h-2 rounded-full transition-all duration-500" style={{ width: `${Math.min(totalTicks * 5, 100)}%` }} />
+                          {student.activeActions?.length ? (
+                            <div className="w-full bg-slate-100 rounded-full h-2 max-w-[100px]" title={`${totalTicks} nhiệm vụ hoàn thành`}>
+                              <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${Math.min(totalTicks * 5, 100)}%` }} />
                             </div>
                           ) : (
                             <span className="text-slate-400">-</span>
@@ -678,18 +497,18 @@ const TeacherView: React.FC<TeacherViewProps> = ({
         </div>
       </main>
 
-      {/* Modal Details & Edit */}
+      {/* Modal */}
       {viewingStudent && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-opacity duration-300">
-          <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col transform transition-transform duration-300 scale-100">
-            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white z-10">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white">
               <div>
                 <h2 className="text-xl font-bold text-slate-800">{viewingStudent.name}</h2>
                 <p className="text-sm text-slate-500 mt-1">
                   MHS: <span className="font-mono text-indigo-600">{viewingStudent.mhs}</span> | Lớp: {viewingStudent.class}
                 </p>
               </div>
-              <button onClick={() => setViewingMhs(null)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors">
+              <button onClick={() => setViewingMhs(null)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl">
                 <X size={24} />
               </button>
             </div>
@@ -697,68 +516,40 @@ const TeacherView: React.FC<TeacherViewProps> = ({
             <div className="flex border-b border-slate-100 px-6">
               <button
                 onClick={() => setActiveTab("report")}
-                className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${
-                  activeTab === "report" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"
-                }`}
+                className={`py-3 px-4 text-sm font-semibold border-b-2 ${activeTab === "report" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
               >
-                <div className="flex items-center gap-2">
-                  <BarChart3 size={16} /> Báo cáo AI
-                </div>
+                <div className="flex items-center gap-2"><BarChart3 size={16} /> Báo cáo AI</div>
               </button>
               <button
                 onClick={() => setActiveTab("tracking")}
-                className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${
-                  activeTab === "tracking" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"
-                }`}
+                className={`py-3 px-4 text-sm font-semibold border-b-2 ${activeTab === "tracking" ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
               >
-                <div className="flex items-center gap-2">
-                  <CalendarCheck size={16} /> Theo dõi Thói quen
-                </div>
+                <div className="flex items-center gap-2"><CalendarCheck size={16} /> Theo dõi Thói quen</div>
               </button>
             </div>
 
-            <div className="p-8 space-y-6 overflow-y-auto custom-scrollbar bg-[#fcfcfc] flex-1">
-              {activeTab === "report" &&
-                (viewingStudent.aiReport ? (
+            <div className="p-8 space-y-6 overflow-y-auto bg-[#fcfcfc] flex-1">
+              {activeTab === "report" && (
+                viewingStudent.aiReport ? (
                   <>
                     <div className="flex justify-end mb-2">
                       {!isEditing ? (
-                        <button
-                          onClick={() => setIsEditing(true)}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-200 transition-colors"
-                        >
+                        <button onClick={() => setIsEditing(true)} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-200">
                           <Edit2 size={14} /> Sửa nội dung
                         </button>
                       ) : (
-                        <button
-                          onClick={handleSaveEdit}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-semibold hover:bg-emerald-600 shadow-md transition-all"
-                        >
+                        <button onClick={handleSaveEdit} className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-semibold hover:bg-emerald-600 shadow-md">
                           <Save size={14} /> Lưu
                         </button>
                       )}
                     </div>
 
-                    <div
-                      className={`p-5 rounded-2xl border ${
-                        viewingStudent.aiReport.riskLevel === "Cao"
-                          ? "border-red-200 bg-red-50/50"
-                          : viewingStudent.aiReport.riskLevel === "Trung bình"
-                          ? "border-orange-200 bg-orange-50/50"
-                          : "border-emerald-200 bg-emerald-50/50"
-                      }`}
-                    >
-                      <h3
-                        className={`font-bold text-sm uppercase tracking-wide mb-3 ${
-                          viewingStudent.aiReport.riskLevel === "Cao"
-                            ? "text-red-700"
-                            : viewingStudent.aiReport.riskLevel === "Trung bình"
-                            ? "text-orange-700"
-                            : "text-emerald-700"
-                        }`}
-                      >
-                        Đánh giá Tổng quan
-                      </h3>
+                    <div className={`p-5 rounded-2xl border ${
+                      viewingStudent.aiReport.riskLevel === "Cao" ? "border-red-200 bg-red-50/50" :
+                      viewingStudent.aiReport.riskLevel === "Trung bình" ? "border-orange-200 bg-orange-50/50" :
+                      "border-emerald-200 bg-emerald-50/50"
+                    }`}>
+                      <h3 className="font-bold text-sm uppercase tracking-wide mb-3">Đánh giá Tổng quan</h3>
                       {isEditing ? (
                         <textarea
                           className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-700 bg-white"
@@ -786,10 +577,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                     </div>
 
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                      <h3 className="font-bold text-sm uppercase tracking-wide text-slate-600 mb-3 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-                        Ghi chú Riêng tư (GV)
-                      </h3>
+                      <h3 className="font-bold text-sm uppercase tracking-wide text-slate-600 mb-3">Ghi chú Riêng tư (GV)</h3>
                       {isEditing ? (
                         <textarea
                           className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-700 bg-slate-50"
@@ -801,39 +589,91 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                         <p className="text-sm text-slate-600">{viewingStudent.aiReport.teacherNotes}</p>
                       )}
                     </div>
-
-                    <div>
-                      <h3 className="font-bold text-sm uppercase tracking-wide text-slate-600 mb-3 ml-1">Kế hoạch Học tập</h3>
-                      <div className="text-sm text-slate-600 bg-white border border-slate-100 rounded-2xl shadow-sm divide-y divide-slate-50">
-                        {viewingStudent.aiReport.studyPlan.map((p, i) => (
-                          <div key={i} className="p-4 grid grid-cols-4 gap-4">
-                            <span className="font-bold text-slate-400 text-xs uppercase pt-1">{p.day}</span>
-                            <span className="text-indigo-600 font-semibold">{p.subject}</span>
-                            <span className="col-span-2 text-slate-700">{p.content}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
                   </>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-slate-400">
                     <Activity size={48} className="mb-4 opacity-50" />
-                    <p>Chưa có báo cáo AI. Hãy nhấn "Tạo" ở màn hình chính.</p>
+                    <p>Chưa có báo cáo AI.</p>
                   </div>
-                ))}
+                )
+              )}
 
               {activeTab === "tracking" && (
                 <div>
-                  <h3 className="font-bold text-slate-800 mb-6">Theo dõi Thói quen</h3>
-                  {renderTracking()}
+                  <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+                    <h3 className="font-bold text-slate-800">Tiến độ Thói quen</h3>
+
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(e.target.value)}
+                        className="px-3 py-2 border border-slate-200 rounded-xl bg-white text-sm"
+                        title="Chọn tháng để xem nhiệm vụ/tick"
+                      >
+                        {allMonthsInSystem.length === 0 ? (
+                          <option value={latestMonthKey(viewingStudent)}>{latestMonthKey(viewingStudent)}</option>
+                        ) : (
+                          allMonthsInSystem.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))
+                        )}
+                      </select>
+
+                      <button onClick={() => setRangeDays(7)} className={`px-3 py-2 rounded-xl text-xs font-semibold border ${rangeDays === 7 ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200"}`}>7 ngày</button>
+                      <button onClick={() => setRangeDays(30)} className={`px-3 py-2 rounded-xl text-xs font-semibold border ${rangeDays === 30 ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200"}`}>30 ngày</button>
+                      <button onClick={() => setRangeDays(90)} className={`px-3 py-2 rounded-xl text-xs font-semibold border ${rangeDays === 90 ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200"}`}>90 ngày</button>
+                    </div>
+                  </div>
+
+                  {trackingActions.length === 0 ? (
+                    <div className="text-center py-10 text-slate-500 italic bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                      Chưa có thói quen nào.
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {trackingActions.map((action) => (
+                        <div key={action.id} className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
+                          <div className="flex justify-between items-start mb-4">
+                            <div>
+                              <h4 className="font-semibold text-slate-700">{action.description}</h4>
+                              <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded mt-1 inline-block">{action.frequency}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-2xl font-bold text-indigo-600">{action.ticks?.length ?? 0}</span>
+                              <p className="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Tổng Tick</p>
+                            </div>
+                          </div>
+
+                          <div className="overflow-x-auto">
+                            <div className="min-w-[760px] flex items-center justify-between gap-2">
+                              {dates.map((dateString) => {
+                                const isDone = (action.ticks || []).some((t) => t.date === dateString && t.completed);
+                                const d = new Date(dateString);
+                                const label = `${d.getDate()}/${d.getMonth() + 1}`;
+                                return (
+                                  <div key={dateString} className="flex flex-col items-center gap-2 flex-1 min-w-[34px]">
+                                    <div className={`w-full h-2 rounded-full ${isDone ? "bg-emerald-500" : "bg-slate-100"}`} />
+                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-medium ${
+                                      isDone ? "bg-emerald-100 text-emerald-700" : "bg-slate-50 text-slate-400 border border-slate-100"
+                                    }`}>
+                                      {isDone ? <Check size={16} /> : <span className="text-[10px]">{label}</span>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
+
             </div>
           </div>
         </div>
       )}
     </div>
   );
-};
-
-export default TeacherView;
+}
