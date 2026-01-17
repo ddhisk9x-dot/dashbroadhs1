@@ -239,8 +239,25 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   let monthKeysToSync: string[] = monthKeysAll;
 
   if (mode === "new_only") {
-    monthKeysToSync = monthKeysAll.filter((m) => !oldMonths.has(m));
-  } else if (mode === "months") {
+  monthKeysToSync = monthKeysAll.filter((m) => !oldMonths.has(m));
+
+  // ✅ NEW: nếu có HS mới mà không có "tháng mới" -> sync tất cả tháng để HS mới có điểm
+  let hasNewStudents = false;
+  for (let r = 2; r < rows.length; r++) {
+    const row = rows[r] ?? [];
+    const mhs = String(row[idxMhs] ?? "").trim();
+    if (!mhs) continue;
+    if (!oldMap.has(mhs)) {
+      hasNewStudents = true;
+      break;
+    }
+  }
+
+  if (monthKeysToSync.length === 0 && hasNewStudents) {
+    monthKeysToSync = monthKeysAll;
+  }
+}
+ else if (mode === "months") {
     if (selectedMonths.length > 0) {
       const selSet = new Set(selectedMonths);
       monthKeysToSync = monthKeysAll.filter((m) => selSet.has(m));
@@ -398,3 +415,4 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
   }
 }
+
