@@ -591,6 +591,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                   </tr>
                 ) : (
                   filteredStudents.map((student) => {
+                    <TeacherResetPasswordButton mhs={student.mhs} />
                     const lastScore = student.scores?.[student.scores.length - 1];
                     const scores = [lastScore?.math, lastScore?.lit, lastScore?.eng].filter(
                       (s) => s !== null && s !== undefined
@@ -893,8 +894,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                     <p>Chưa có báo cáo AI. Hãy nhấn nút "Tạo" ở màn hình chính.</p>
                   </div>
                 ))}
-  {/* ✅ Reset mật khẩu */}
-  <TeacherResetPasswordButton mhs={student.mhs} />
+
               {/* TAB 2: TRACKING (7 ngày hiện tại) */}
               {activeTab === "tracking" && (
                 <div>
