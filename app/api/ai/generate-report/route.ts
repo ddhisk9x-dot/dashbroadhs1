@@ -16,6 +16,24 @@ type ActionItem = { description: string; frequency: string };
 
 const SCALE_MAX = 15;
 
+function isMonthKey(m: string) {
+  return /^\d{4}-\d{2}$/.test(String(m || "").trim());
+}
+
+function nextMonthKey(monthKey: string): string {
+  const m = String(monthKey || "").trim();
+  if (!isMonthKey(m)) return new Date().toISOString().slice(0, 7);
+  const [yStr, moStr] = m.split("-");
+  let y = Number(yStr);
+  let mo = Number(moStr);
+  mo += 1;
+  if (mo === 13) {
+    mo = 1;
+    y += 1;
+  }
+  return `${String(y).padStart(4, "0")}-${String(mo).padStart(2, "0")}`;
+}
+
 function safeNum(v: any): number | null {
   if (v === undefined || v === null || v === "") return null;
   const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
@@ -66,7 +84,12 @@ function band15(x: number | null): string {
   return "EXCELLENT";
 }
 
-function riskSuggest(latestAvg: number | null, dMath: number | null, dLit: number | null, dEng: number | null): "Thấp" | "Trung bình" | "Cao" {
+function riskSuggest(
+  latestAvg: number | null,
+  dMath: number | null,
+  dLit: number | null,
+  dEng: number | null
+): "Thấp" | "Trung bình" | "Cao" {
   const drops = [dMath, dLit, dEng].filter((x) => x !== null) as number[];
   const bigDrop = drops.some((x) => x <= -1.5);
   const midDrop = drops.some((x) => x <= -0.8);
@@ -106,17 +129,10 @@ function clampRisk(v: any): "Thấp" | "Trung bình" | "Cao" {
 function extractJson(text: string): any | null {
   if (!text) return null;
   const t = String(text).trim();
-
-  // remove common wrappers
-  const cleaned = t
-    .replace(/```json/gi, "")
-    .replace(/```/g, "")
-    .trim();
-
+  const cleaned = t.replace(/```json/gi, "").replace(/```/g, "").trim();
   const s = cleaned.indexOf("{");
   const e = cleaned.lastIndexOf("}");
   if (s < 0 || e <= s) return null;
-
   const slice = cleaned.slice(s, e + 1);
   try {
     return JSON.parse(slice);
@@ -275,11 +291,9 @@ export async function POST(req: Request) {
 
       const parsed = extractJson((resp as any)?.text || "");
       if (parsed) {
-        // sanitize
         const next: any = { generatedAt: new Date().toISOString(), ...parsed };
         next.riskLevel = clampRisk(next.riskLevel ?? insights.suggestedRisk);
 
-        // normalize actions
         const rawActions = Array.isArray(next.actions) ? next.actions : [];
         const cleanActions: ActionItem[] = rawActions
           .map((a: any) => {
@@ -292,7 +306,6 @@ export async function POST(req: Request) {
           .filter((a: ActionItem) => a.description.length > 0)
           .slice(0, 5);
 
-        // ensure 3-5 actions
         if (cleanActions.length < 3) {
           const fb = fallbackReport(student);
           const fbActs = Array.isArray(fb.actions) ? fb.actions : [];
@@ -306,12 +319,11 @@ export async function POST(req: Request) {
         report = next;
       }
     } catch {
-      // keep fallback
       report = fallbackReport(student);
     }
   }
 
-  // Persist report + actions into state (PRESERVE existing ticks when possible)
+  // ✅ PERSIST: điểm tháng N -> nhiệm vụ tháng N+1
   const state = await getAppState();
   const students = Array.isArray(state.students) ? state.students : [];
   const idx = students.findIndex((s: any) => String(s.mhs).trim() === String(student.mhs).trim());
@@ -320,21 +332,29 @@ export async function POST(req: Request) {
     const updated: any = { ...(students[idx] || {}) };
     updated.aiReport = report;
 
-    const existingActions: any[] = Array.isArray(updated.activeActions) ? updated.activeActions : [];
+    const scores = Array.isArray(updated.scores) ? updated.scores : [];
+    const latestScore = pickLatest(scores);
+    const latestScoreMonth = isMonthKey(latestScore?.month || "") ? String(latestScore!.month).trim() : new Date().toISOString().slice(0, 7);
+    const taskMonth = nextMonthKey(latestScoreMonth);
+
+    // Ensure actionsByMonth exists
+    const abm = updated.actionsByMonth && typeof updated.actionsByMonth === "object" ? updated.actionsByMonth : {};
+    const existingMonthActions: any[] = Array.isArray(abm[taskMonth]) ? abm[taskMonth] : [];
+
+    // preserve ticks in SAME month by (description+frequency)
     const existingMap = new Map<string, any>();
-    for (const a of existingActions) {
+    for (const a of existingMonthActions) {
       const key = `${normText(a?.description)}__${normalizeFrequency(a?.frequency)}`;
       if (!existingMap.has(key)) existingMap.set(key, a);
     }
 
     const actions: any[] = Array.isArray(report.actions) ? report.actions : [];
-    updated.activeActions = actions.map((a: any, i: number) => {
+    const newMonthActions = actions.map((a: any, i: number) => {
       const desc = String(a?.description ?? a ?? "").trim();
       const freq = normalizeFrequency(a?.frequency);
       const key = `${normText(desc)}__${freq}`;
       const old = existingMap.get(key);
 
-      // keep ticks/id if same habit (same description+frequency)
       if (old) {
         return {
           id: old.id,
@@ -351,6 +371,12 @@ export async function POST(req: Request) {
         ticks: [],
       };
     });
+
+    abm[taskMonth] = newMonthActions;
+    updated.actionsByMonth = abm;
+
+    // backward compat: activeActions mirror current task month
+    updated.activeActions = newMonthActions;
 
     const nextStudents = [...students];
     nextStudents[idx] = updated;
