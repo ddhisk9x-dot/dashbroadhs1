@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/sync/sheets?secret=dd_sync_9a8s7d6f5g4h3j2k1l",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}
