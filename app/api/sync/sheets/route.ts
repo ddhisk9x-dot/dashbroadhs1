@@ -33,8 +33,61 @@ async function readSession(): Promise<SessionPayload | null> {
   }
 }
 
-// CSV parser đơn giản (đủ cho bảng điểm)
-function parseCSV(text: string): string[][] {
+function normHeader(v: any): string {
+  return String(v ?? "")
+    .replace(/\uFEFF/g, "") // BOM
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+// Detect CSV delimiter (comma/semicolon/tab) from first few non-empty lines
+function detectDelimiter(text: string): string {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .slice(0, 10);
+
+  if (lines.length === 0) return ",";
+
+  const candidates = [",", ";", "\t"];
+  const score: Record<string, number> = { ",": 0, ";": 0, "\t": 0 };
+
+  for (const line of lines) {
+    for (const d of candidates) {
+      score[d] += countDelimiterOutsideQuotes(line, d);
+    }
+  }
+
+  // pick max
+  let best = ",";
+  for (const d of candidates) {
+    if (score[d] > score[best]) best = d;
+  }
+  return best;
+}
+
+function countDelimiterOutsideQuotes(line: string, delim: string): number {
+  let inQuotes = false;
+  let count = 0;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        i++; // escaped quote
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (!inQuotes && ch === delim) count++;
+  }
+  return count;
+}
+
+// CSV parser (supports delimiter + quotes)
+function parseCSV(text: string, delim: string): string[][] {
   const rows: string[][] = [];
   let cur = "";
   let inQuotes = false;
@@ -53,7 +106,7 @@ function parseCSV(text: string): string[][] {
       continue;
     }
 
-    if (!inQuotes && ch === ",") {
+    if (!inQuotes && ch === delim) {
       row.push(cur);
       cur = "";
       continue;
@@ -78,15 +131,6 @@ function parseCSV(text: string): string[][] {
   return rows;
 }
 
-function normHeader(v: any): string {
-  // normalize: trim, remove BOM, collapse spaces, uppercase
-  return String(v ?? "")
-    .replace(/\uFEFF/g, "") // BOM
-    .replace(/\s+/g, " ")
-    .trim()
-    .toUpperCase();
-}
-
 function toNumberOrNull(v: string | undefined): number | null {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
@@ -105,6 +149,28 @@ type Student = {
   aiReport?: any;
 };
 
+function findColIndex(header2: string[], aliases: string[]): number {
+  for (const a of aliases) {
+    const idx = header2.indexOf(normHeader(a));
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+function findHeaderRowIndex(rows: string[][]): number {
+  // scan first 15 rows to find the one that contains "MHS" (or aliases)
+  const aliases = ["MHS", "MÃ HS", "MA HS", "MAHS", "MÃ HỌC SINH", "MA HOC SINH"];
+  const want = aliases.map(normHeader);
+
+  const max = Math.min(rows.length, 15);
+  for (let i = 0; i < max; i++) {
+    const row = rows[i] ?? [];
+    const normed = row.map(normHeader);
+    if (normed.some((c) => want.includes(c))) return i;
+  }
+  return -1;
+}
+
 async function doSyncFromSheet() {
   const sheetUrl = process.env.SHEET_CSV_URL;
   if (!sheetUrl) throw new Error("Missing env: SHEET_CSV_URL");
@@ -117,27 +183,43 @@ async function doSyncFromSheet() {
   const resp = await fetch(sheetUrl, { cache: "no-store" });
   if (!resp.ok) throw new Error(`Fetch CSV failed: ${resp.status}`);
   const csv = await resp.text();
-  const rows = parseCSV(csv);
 
-  // 2) Validate
-  if (rows.length < 3) throw new Error("CSV must have 2 header rows + data rows");
+  // 2) Parse CSV robustly (detect delimiter)
+  const delim = detectDelimiter(csv);
+  const rows = parseCSV(csv, delim);
 
-  // Row 1: month_key (ví dụ 2025-08 lặp lại trên các cột môn)
-  const monthRow = rows[0] ?? [];
-  // Row 2: tên cột (MHS, HỌ VÀ TÊN, LỚP, TOÁN, NGỮ VĂN, TIẾNG ANH...)
-  const headerRow = rows[1] ?? [];
+  if (rows.length < 2) throw new Error("CSV too short");
 
+  // 3) Auto-detect header row that contains MHS
+  const headerRowIndex = findHeaderRowIndex(rows);
+  if (headerRowIndex < 0) {
+    // show first 3 rows to help debug
+    const preview = rows.slice(0, 3).map((r) => r.slice(0, 12));
+    throw new Error(`Missing column: MHS (not found in first rows). Preview: ${JSON.stringify(preview)}`);
+  }
+
+  // month row is the row immediately above the header row (your design)
+  const monthRowIndex = Math.max(0, headerRowIndex - 1);
+
+  const monthRow = rows[monthRowIndex] ?? [];
+  const headerRow = rows[headerRowIndex] ?? [];
   const header2 = headerRow.map(normHeader);
 
-  const idxMhs = header2.indexOf("MHS");
-  const idxName = header2.indexOf("HỌ VÀ TÊN");
-  const idxClass = header2.indexOf("LỚP");
+  const idxMhs = findColIndex(header2, ["MHS", "MÃ HS", "MA HS", "MAHS", "MÃ HỌC SINH", "MA HOC SINH"]);
+  const idxName = findColIndex(header2, ["HỌ VÀ TÊN", "HỌ TÊN", "HO VA TEN", "HO TEN"]);
+  const idxClass = findColIndex(header2, ["LỚP", "LOP"]);
 
-  if (idxMhs < 0) throw new Error("Missing column: MHS");
-  if (idxName < 0) throw new Error("Missing column: HỌ VÀ TÊN");
-  if (idxClass < 0) throw new Error("Missing column: LỚP");
+  if (idxMhs < 0) {
+    throw new Error(`Missing column: MHS (headerRowIndex=${headerRowIndex}). Headers: ${JSON.stringify(headerRow)}`);
+  }
+  if (idxName < 0) {
+    throw new Error(`Missing column: HỌ VÀ TÊN (headerRowIndex=${headerRowIndex}). Headers: ${JSON.stringify(headerRow)}`);
+  }
+  if (idxClass < 0) {
+    throw new Error(`Missing column: LỚP (headerRowIndex=${headerRowIndex}). Headers: ${JSON.stringify(headerRow)}`);
+  }
 
-  // Lấy month keys đúng định dạng yyyy-mm (tránh lấy rác)
+  // month keys like 2025-08
   const monthKeys = Array.from(
     new Set(
       monthRow
@@ -147,7 +229,9 @@ async function doSyncFromSheet() {
   );
 
   if (monthKeys.length === 0) {
-    throw new Error('No month_key detected on row 1. Expected values like "2025-08".');
+    throw new Error(
+      `No month_key detected on month row (row ${monthRowIndex + 1}). Expected "YYYY-MM" like 2025-08.`
+    );
   }
 
   const getCol = (monthKey: string, subjectUpper: string) => {
@@ -160,11 +244,13 @@ async function doSyncFromSheet() {
     return -1;
   };
 
-  // 3) Build students
+  // data starts after header row
+  const dataStart = headerRowIndex + 1;
+
+  // 4) Build students
   const studentMap = new Map<string, Student>();
 
-  // Data bắt đầu từ row index 2 (dòng 3)
-  for (let r = 2; r < rows.length; r++) {
+  for (let r = dataStart; r < rows.length; r++) {
     const row = rows[r] ?? [];
     const mhs = String(row[idxMhs] ?? "").trim();
     if (!mhs) continue;
@@ -192,7 +278,7 @@ async function doSyncFromSheet() {
       const lit = cLit >= 0 ? toNumberOrNull(row[cLit]) : null;
       const eng = cEng >= 0 ? toNumberOrNull(row[cEng]) : null;
 
-      // thiếu điểm thì bỏ qua (đúng yêu cầu)
+      // thiếu điểm thì không tính
       if (math === null && lit === null && eng === null) continue;
 
       const entry: ScoreData = { month: mk, math, lit, eng };
@@ -204,11 +290,10 @@ async function doSyncFromSheet() {
 
   const newStudents = Array.from(studentMap.values());
 
-  // 4) Save to app_state(main)
+  // 5) Save to app_state(main)
   const supabase = createClient(supabaseUrl, serviceKey);
 
-  // IMPORTANT: cột trong DB của bạn đang là students (JSONB) theo bản cloud mới
-  // nếu DB bạn vẫn là students_json thì đổi lại dòng dưới cho khớp.
+  // LƯU Ý: cột JSON trong app_state của bạn là "students" (bản cloud hiện tại)
   const { error } = await supabase
     .from("app_state")
     .upsert({ id: "main", students: { students: newStudents } }, { onConflict: "id" });
@@ -216,6 +301,9 @@ async function doSyncFromSheet() {
   if (error) throw new Error(error.message);
 
   return {
+    delimiter: delim === "\t" ? "TAB" : delim,
+    headerRowIndex,
+    monthRowIndex,
     students: newStudents.length,
     monthsDetected: monthKeys.length,
     months: monthKeys,
@@ -235,10 +323,7 @@ export async function POST() {
     const result = await doSyncFromSheet();
     return NextResponse.json({ ok: true, mode: "admin", ...result });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Sync failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
   }
 }
 
@@ -258,9 +343,6 @@ export async function GET(req: Request) {
     const result = await doSyncFromSheet();
     return NextResponse.json({ ok: true, mode: "cron", ...result });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Sync failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
   }
 }
