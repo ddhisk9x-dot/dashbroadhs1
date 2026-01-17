@@ -1,6 +1,8 @@
+// app/api/login/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { setSession } from "@/lib/session";
+import { fetchAccountsFromSheet, getOverridePassword } from "@/lib/accounts";
 
 export const runtime = "nodejs";
 
@@ -10,8 +12,8 @@ function isAdmin(username: string, password: string) {
   return username === u && password === p;
 }
 
-function allowStudentPassword(mhs: string, password: string) {
-  // theo UI bạn đang ghi: mật khẩu = MHS hoặc 123456
+// fallback legacy: UI ghi mật khẩu = MHS hoặc 123456
+function allowLegacyStudentPassword(mhs: string, password: string) {
   return password === mhs || password === "123456";
 }
 
@@ -31,8 +33,40 @@ async function findStudentByMhs(mhs: string) {
   if (error) throw new Error(error.message);
 
   const students = (data?.students_json?.students as any[]) || [];
-  const st = students.find((s) => String(s?.mhs || "").trim() === mhs);
+  const st = students.find((s) => String(s?.mhs || "").trim() === String(mhs).trim());
   return st || null;
+}
+
+async function checkStudentPassword(mhs: string, password: string): Promise<boolean> {
+  const username = String(mhs).trim();
+  const pw = String(password).trim();
+
+  // 1) DB override (ưu tiên cao nhất)
+  const override = await getOverridePassword(username).catch(() => null);
+  if (override && pw === override) return true;
+
+  // 2) Sheet accounts (NEW_PASSWORD > DEFAULT_PASSWORD)
+  try {
+    const accounts = await fetchAccountsFromSheet();
+    const acc = accounts.get(username) || accounts.get(String(username).trim());
+    if (acc) {
+      const sheetEffective = (acc.newPassword || acc.defaultPassword || "").trim();
+      if (sheetEffective && pw === sheetEffective) return true;
+
+      // nếu sheet có username riêng, cho phép login bằng username nhưng dùng MHS làm session
+      const u2 = (acc.username || "").trim();
+      if (u2 && u2 !== username) {
+        const acc2 = accounts.get(u2);
+        const eff2 = (acc2?.newPassword || acc2?.defaultPassword || "").trim();
+        if (eff2 && pw === eff2) return true;
+      }
+    }
+  } catch {
+    // ignore (vẫn fallback legacy)
+  }
+
+  // 3) Legacy fallback
+  return allowLegacyStudentPassword(username, pw);
 }
 
 export async function POST(req: Request) {
@@ -57,7 +91,10 @@ export async function POST(req: Request) {
 
     // ✅ STUDENT (username = MHS)
     const mhs = username;
-    if (!allowStudentPassword(mhs, password)) {
+
+    // check password from: DB override > accounts sheet (new/default) > legacy
+    const okPw = await checkStudentPassword(mhs, password);
+    if (!okPw) {
       return NextResponse.json({ ok: false, error: "Sai mật khẩu" }, { status: 401 });
     }
 
@@ -73,9 +110,6 @@ export async function POST(req: Request) {
     setSession(res, { role: "STUDENT", mhs });
     return res;
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });
   }
 }
