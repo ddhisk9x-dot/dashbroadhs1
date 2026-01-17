@@ -96,7 +96,7 @@ function toNumberOrNull(v: string | undefined): number | null {
 
 type ScoreData = { month: string; math: number | null; lit: number | null; eng: number | null };
 
-// ✅ cập nhật Student: thêm actionsByMonth để giữ nhiệm vụ/tick theo tháng
+// ✅ Student có thêm actionsByMonth để giữ tick theo tháng
 type Student = {
   mhs: string;
   name: string;
@@ -104,11 +104,8 @@ type Student = {
   scores: ScoreData[];
   aiReport?: any;
 
-  // mới
   actionsByMonth?: Record<string, any[]>;
-
-  // cũ (giữ tương thích)
-  activeActions?: any[];
+  activeActions?: any[]; // giữ tương thích UI cũ
 };
 
 function looksLikeHtml(text: string): boolean {
@@ -130,34 +127,10 @@ function getLatestMonthFromScores(scores: ScoreData[] | undefined): string {
   return isMonthKey(mk) ? mk : new Date().toISOString().slice(0, 7);
 }
 
-// ✅ merge action list: giữ ticks nếu action mới trùng (description+frequency)
-function mergeActionsKeepTicks(oldActions: any[] | undefined, newActions: any[] | undefined, mhs: string) {
-  const oldList = Array.isArray(oldActions) ? oldActions : [];
-  const nextList = Array.isArray(newActions) ? newActions : [];
-
-  const keyOf = (a: any) =>
-    `${String(a?.description || "").trim().toLowerCase()}__${String(a?.frequency || "").trim().toLowerCase()}`;
-
-  const oldMap = new Map<string, any>();
-  oldList.forEach((a) => oldMap.set(keyOf(a), a));
-
-  return nextList.map((a, i) => {
-    const desc = String(a?.description || a || "").trim();
-    const freq = String(a?.frequency || "Hàng ngày").trim();
-    const old = oldMap.get(keyOf({ description: desc, frequency: freq }));
-    return {
-      id: old?.id || `${mhs}-${Date.now()}-${i}`,
-      description: desc,
-      frequency: freq,
-      ticks: Array.isArray(old?.ticks) ? old.ticks : [],
-    };
-  });
-}
-
 // ✅ migrate dữ liệu cũ: nếu chỉ có activeActions -> đưa vào actionsByMonth theo tháng mới nhất
 function normalizeActionsStorage(st: Student): Student {
   const s: Student = { ...st };
-  s.actionsByMonth = (s.actionsByMonth && typeof s.actionsByMonth === "object") ? s.actionsByMonth : {};
+  s.actionsByMonth = s.actionsByMonth && typeof s.actionsByMonth === "object" ? s.actionsByMonth : {};
 
   const aa = Array.isArray(s.activeActions) ? s.activeActions : [];
   if (aa.length) {
@@ -169,11 +142,8 @@ function normalizeActionsStorage(st: Student): Student {
 
   // luôn set activeActions = tháng mới nhất để UI cũ vẫn chạy
   const latest = getLatestMonthFromScores(s.scores);
-  if (Array.isArray(s.actionsByMonth![latest])) {
-    s.activeActions = s.actionsByMonth![latest];
-  } else {
-    s.activeActions = aa;
-  }
+  if (Array.isArray(s.actionsByMonth![latest])) s.activeActions = s.actionsByMonth![latest];
+  else s.activeActions = aa;
 
   return s;
 }
@@ -227,18 +197,14 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
   if (idxMhs < 0) {
     const hPreview = headerRow.slice(0, 30).map((x) => String(x ?? "")).join(" | ");
-    throw new error(`Missing column: MHS (header row 2). Header preview: ${hPreview}`);
+    throw new Error(`Missing column: MHS (header row 2). Header preview: ${hPreview}`);
   }
   if (idxName < 0) throw new Error("Missing column: HỌ VÀ TÊN");
   if (idxClass < 0) throw new Error("Missing column: LỚP");
 
   // Lấy month keys đúng định dạng yyyy-mm
   const monthKeysAll = Array.from(
-    new Set(
-      monthRow
-        .map((x) => String(x ?? "").trim())
-        .filter((x) => isMonthKey(x))
-    )
+    new Set(monthRow.map((x) => String(x ?? "").trim()).filter((x) => isMonthKey(x)))
   );
 
   if (monthKeysAll.length === 0) {
@@ -333,7 +299,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
   const newStudents = Array.from(studentMap.values()).map(normalizeActionsStorage);
 
-  // 4) Merge: cập nhật scores/name/class từ sheet, giữ aiReport + actionsByMonth + tick
+  // 4) Merge: cập nhật scores/name/class từ sheet, giữ aiReport + actionsByMonth
   const mergedStudents: Student[] = newStudents.map((ns) => {
     const old = oldMap.get(String(ns.mhs).trim());
 
@@ -345,14 +311,9 @@ async function doSyncFromSheet(opts?: SyncOpts) {
       scoresMerged = [...keepOldScores, ...(ns.scores ?? [])].sort((a, b) => a.month.localeCompare(b.month));
     }
 
-    // ✅ merge actionsByMonth: giữ toàn bộ tháng cũ; tháng nào sync mà muốn thay nhiệm vụ thì vẫn GIỮ ticks theo description+frequency
-    const oldABM = (old?.actionsByMonth && typeof old.actionsByMonth === "object") ? old.actionsByMonth : {};
-    const nsABM = (ns.actionsByMonth && typeof ns.actionsByMonth === "object") ? ns.actionsByMonth : {};
+    const oldABM = old?.actionsByMonth && typeof old.actionsByMonth === "object" ? old.actionsByMonth : {};
+    const nsABM = ns.actionsByMonth && typeof ns.actionsByMonth === "object" ? ns.actionsByMonth : {};
     const mergedABM: Record<string, any[]> = { ...oldABM, ...nsABM };
-
-    // nếu trong sheet update scores cho tháng nào đó nhưng nhiệm vụ tháng đó đã tồn tại, cứ giữ nguyên nhiệm vụ/tick
-    // (nhiệm vụ tháng mới sẽ do AI tạo, không do sync tạo)
-    // -> do đó không overwrite tháng đó.
 
     const merged: Student = {
       ...ns,
@@ -361,7 +322,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
       actionsByMonth: mergedABM,
     };
 
-    // activeActions = tháng mới nhất (để UI cũ không lỗi)
+    // activeActions = tháng mới nhất để UI cũ vẫn chạy
     const latest = getLatestMonthFromScores(merged.scores);
     if (Array.isArray(merged.actionsByMonth?.[latest])) merged.activeActions = merged.actionsByMonth![latest];
     else merged.activeActions = old?.activeActions ?? ns.activeActions ?? [];
@@ -369,11 +330,9 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     return normalizeActionsStorage(merged);
   });
 
-  // 5) Giữ học sinh cũ không có trong sheet mới (để không mất dữ liệu/ticks)
+  // 5) Giữ học sinh cũ không có trong sheet mới (để không mất dữ liệu)
   for (const [mhs, old] of oldMap.entries()) {
-    if (!mergedStudents.some((s) => s.mhs === mhs)) {
-      mergedStudents.push(old);
-    }
+    if (!mergedStudents.some((s) => s.mhs === mhs)) mergedStudents.push(old);
   }
 
   // 6) Save lại app_state
