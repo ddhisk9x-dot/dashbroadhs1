@@ -1,10 +1,14 @@
+// lib/session.ts
 import crypto from "crypto";
 import { cookies } from "next/headers";
 import type { NextResponse } from "next/server";
 
 const COOKIE_NAME = "dd_session";
 
-type SessionPayload = { role: "ADMIN" | "STUDENT"; mhs: string | null };
+export type SessionPayload =
+  | { role: "ADMIN"; mhs: null }
+  | { role: "STUDENT"; mhs: string }
+  | { role: "TEACHER"; mhs: null; teacherUsername: string; teacherClass: string; teacherName?: string };
 
 function sign(raw: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(raw).digest("hex");
@@ -32,9 +36,11 @@ export async function getSession(): Promise<SessionPayload | null> {
 
   const [b64, sig] = value.split(".");
   if (!b64 || !sig) return null;
+
   const raw = Buffer.from(b64, "base64").toString("utf-8");
   const expected = sign(raw, secret);
   if (sig !== expected) return null;
+
   try {
     return JSON.parse(raw) as SessionPayload;
   } catch {
