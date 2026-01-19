@@ -1,22 +1,40 @@
 // lib/session.ts
+import crypto from "crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import crypto from "crypto";
 
-const COOKIE_NAME = "dd_session";
+export const COOKIE_NAME = "dd_session";
 
-export type SessionRole = "ADMIN" | "STUDENT" | "TEACHER";
+export type AdminSession = {
+  role: "ADMIN";
+  mhs: null;
+  username: string;
+  name?: string;
+};
 
-export type SessionPayload =
-  | { role: "ADMIN"; mhs: null; teacherClass?: null; username?: string; name?: string }
-  | { role: "STUDENT"; mhs: string; teacherClass?: null; username?: string; name?: string }
-  | { role: "TEACHER"; mhs: null; teacherClass: string; username: string; name?: string };
+export type StudentSession = {
+  role: "STUDENT";
+  mhs: string;
+  username: string;
+  name?: string;
+};
+
+export type TeacherSession = {
+  role: "TEACHER";
+  mhs: null;
+  username: string; // login username
+  teacherUsername: string; // alias for clarity (used by your routes)
+  teacherClass: string;
+  name?: string;
+};
+
+export type SessionPayload = AdminSession | StudentSession | TeacherSession;
 
 function sign(raw: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(raw).digest("hex");
 }
 
-function encode(payload: SessionPayload, secret: string): string {
+function encode(payload: SessionPayload, secret: string) {
   const raw = JSON.stringify(payload);
   const b64 = Buffer.from(raw, "utf-8").toString("base64");
   const sig = sign(raw, secret);
@@ -24,7 +42,7 @@ function encode(payload: SessionPayload, secret: string): string {
 }
 
 function decode(value: string, secret: string): SessionPayload | null {
-  const [b64, sig] = String(value || "").split(".");
+  const [b64, sig] = value.split(".");
   if (!b64 || !sig) return null;
 
   const raw = Buffer.from(b64, "base64").toString("utf-8");
@@ -32,20 +50,43 @@ function decode(value: string, secret: string): SessionPayload | null {
   if (sig !== expected) return null;
 
   try {
-    const obj = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as any;
 
-    // allow backward-compatible cookies
-    const role = String(obj?.role || "").toUpperCase() as SessionRole;
-    const mhs = obj?.mhs === null ? null : String(obj?.mhs || "").trim();
-    const teacherClass = String(obj?.teacherClass || "").trim();
-    const username = String(obj?.username || "").trim();
-    const name = String(obj?.name || "").trim();
+    // normalize for backward/forward compatibility
+    if (parsed?.role === "TEACHER") {
+      const username = String(parsed.username || "").trim();
+      const teacherUsername = String(parsed.teacherUsername || "").trim() || username;
+      const teacherClass = String(parsed.teacherClass || "").trim();
 
-    if (role === "ADMIN") return { role: "ADMIN", mhs: null, teacherClass: null, username, name };
-    if (role === "STUDENT") return mhs ? { role: "STUDENT", mhs, teacherClass: null, username: mhs, name } : null;
-    if (role === "TEACHER") {
-      if (!teacherClass || !username) return null;
-      return { role: "TEACHER", mhs: null, teacherClass, username, name };
+      return {
+        role: "TEACHER",
+        mhs: null,
+        username,
+        teacherUsername,
+        teacherClass,
+        name: parsed.name ? String(parsed.name) : undefined,
+      };
+    }
+
+    if (parsed?.role === "STUDENT") {
+      const mhs = String(parsed.mhs || "").trim();
+      const username = String(parsed.username || parsed.mhs || "").trim();
+      return {
+        role: "STUDENT",
+        mhs,
+        username,
+        name: parsed.name ? String(parsed.name) : undefined,
+      };
+    }
+
+    if (parsed?.role === "ADMIN") {
+      const username = String(parsed.username || "admin").trim();
+      return {
+        role: "ADMIN",
+        mhs: null,
+        username,
+        name: parsed.name ? String(parsed.name) : undefined,
+      };
     }
 
     return null;
@@ -60,7 +101,6 @@ export function setSession(res: NextResponse, payload: SessionPayload) {
 
   const value = encode(payload, secret);
 
-  // 30 days
   res.cookies.set({
     name: COOKIE_NAME,
     value,
@@ -68,7 +108,7 @@ export function setSession(res: NextResponse, payload: SessionPayload) {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60 * 24 * 30,
+    maxAge: 60 * 60 * 24 * 30, // 30 days
   });
 }
 
