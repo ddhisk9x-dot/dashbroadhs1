@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { setSession } from "@/lib/session";
 import { fetchAccountsFromSheet, getOverridePassword } from "@/lib/accounts";
+import { fetchTeachersFromSheet } from "@/lib/teachers";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,19 @@ function isAdmin(username: string, password: string) {
   const u = process.env.ADMIN_USERNAME || "admin";
   const p = process.env.ADMIN_PASSWORD || "admin";
   return username === u && password === p;
+}
+
+function uniqNonEmpty(arr: Array<string | null | undefined>) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of arr) {
+    const s = String(v ?? "").trim();
+    if (!s) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
 }
 
 async function findStudentByMhs(mhs: string) {
@@ -32,19 +46,6 @@ async function findStudentByMhs(mhs: string) {
   return st || null;
 }
 
-function uniqNonEmpty(arr: Array<string | null | undefined>) {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const v of arr) {
-    const s = String(v ?? "").trim();
-    if (!s) continue;
-    if (seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  return out;
-}
-
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -65,6 +66,51 @@ export async function POST(req: Request) {
       return res;
     }
 
+    // ✅ TEACHER (GVCN) - check trước STUDENT để không bị hiểu nhầm
+    // Rule: giống HS
+    // 1) override DB (key = teacher.username) => ONLY override
+    // 2) else sheet NEW_PASSWORD => ONLY new
+    // 3) else sheet DEFAULT_PASSWORD => ONLY default
+    try {
+      const teachers = await fetchTeachersFromSheet();
+      const t = teachers.get(username);
+
+      if (t) {
+        const override = await getOverridePassword(t.username);
+        const effective =
+          (override && override.trim()) ||
+          (t.newPassword && t.newPassword.trim()) ||
+          (t.defaultPassword && t.defaultPassword.trim()) ||
+          "";
+
+        if (!effective) {
+          return NextResponse.json({ ok: false, error: "No teacher password configured" }, { status: 500 });
+        }
+
+        const allowed = uniqNonEmpty([effective]);
+        if (!allowed.includes(password)) {
+          return NextResponse.json({ ok: false, error: "Sai mật khẩu" }, { status: 401 });
+        }
+
+        const res = NextResponse.json({
+          ok: true,
+          user: { username: t.username, name: t.gvcnName || t.username, role: "TEACHER" },
+        });
+
+        setSession(res, {
+          role: "TEACHER",
+          mhs: null,
+          teacherUsername: t.username,
+          teacherClass: t.class,
+          teacherName: t.gvcnName || "",
+        });
+
+        return res;
+      }
+    } catch {
+      // nếu TEACHERS_CSV_URL chưa set thì bỏ qua TEACHER login, không làm hỏng STUDENT login
+    }
+
     // ✅ STUDENT (username = MHS)
     const mhs = username;
 
@@ -81,10 +127,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Account not found in sheet" }, { status: 404 });
     }
 
-    // Effective password rules:
-    // 1) If DB override exists => ONLY that password is valid
-    // 2) Else if sheet NEW_PASSWORD exists => ONLY that password is valid
-    // 3) Else => ONLY DEFAULT_PASSWORD is valid (reset state)
+    // Effective password rules (STRICT):
+    // 1) override DB => ONLY override
+    // 2) else sheet NEW_PASSWORD => ONLY new
+    // 3) else sheet DEFAULT_PASSWORD => ONLY default
     const override = await getOverridePassword(acc.username || mhs);
     const effective =
       (override && override.trim()) ||
@@ -96,7 +142,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "No password configured" }, { status: 500 });
     }
 
-    // Strict check: only effective is accepted
     const allowed = uniqNonEmpty([effective]);
     if (!allowed.includes(password)) {
       return NextResponse.json({ ok: false, error: "Sai mật khẩu" }, { status: 401 });
