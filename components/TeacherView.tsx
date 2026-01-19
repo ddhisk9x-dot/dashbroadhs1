@@ -125,7 +125,7 @@ function uniqMonthsFromStudent(st?: Student) {
     Object.keys(abm).forEach((k) => {
       const kk = String(k || "").trim();
       if (isMonthKey(kk)) set.add(kk);
-      const list = abm[k];
+      const list = (abm as any)[k];
       if (Array.isArray(list)) {
         list.forEach((a: any) => {
           (a?.ticks || []).forEach((t: any) => {
@@ -190,6 +190,37 @@ const TeacherView: React.FC<TeacherViewProps> = ({
   const [activeTab, setActiveTab] = useState<"report" | "tracking">("report");
   const [selectedMhs, setSelectedMhs] = useState<Set<string>>(new Set());
 
+  // ✅ Who am I (ADMIN / TEACHER)
+  const [me, setMe] = useState<any>(null);
+  const isTeacher = me?.role === "TEACHER";
+  const teacherClass = String(me?.teacherClass || "").trim();
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((d) => setMe(d?.session || null))
+      .catch(() => setMe(null));
+  }, []);
+
+  // ✅ Nếu là TEACHER: chỉ thấy học sinh lớp mình
+  const visibleStudents = useMemo(() => {
+    if (!isTeacher || !teacherClass) return students;
+    return students.filter((s) => String(s.class || "").trim() === teacherClass);
+  }, [students, isTeacher, teacherClass]);
+
+  // ✅ Nếu là TEACHER: không cho tick chọn học sinh ngoài lớp (reset setSelectedMhs)
+  useEffect(() => {
+    if (!isTeacher) return;
+    setSelectedMhs((prev) => {
+      const next = new Set<string>();
+      for (const mhs of prev) {
+        const st = visibleStudents.find((s) => s.mhs === mhs);
+        if (st) next.add(mhs);
+      }
+      return next;
+    });
+  }, [isTeacher, visibleStudents]);
+
   // Bulk Generation State
   const [bulkProgress, setBulkProgress] = useState<{
     current: number;
@@ -205,7 +236,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
     teacherNotes: string;
   }>({ overview: "", messageToStudent: "", teacherNotes: "" });
 
-  const viewingStudent = students.find((s) => s.mhs === viewingMhs);
+  const viewingStudent = visibleStudents.find((s) => s.mhs === viewingMhs);
 
   // ✅ Tracking selector (7/30/90 + theo tháng)
   const [trackingMode, setTrackingMode] = useState<TrackingMode>("7");
@@ -228,16 +259,16 @@ const TeacherView: React.FC<TeacherViewProps> = ({
   const [syncMonthSearch, setSyncMonthSearch] = useState("");
   const [syncHint, setSyncHint] = useState<string>("");
 
-  // Filter logic
+  // Filter logic (use visibleStudents)
   const filteredStudents = useMemo(() => {
     const q = searchTerm.toLowerCase();
-    return students.filter(
+    return visibleStudents.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.mhs.toLowerCase().includes(q) ||
         s.class.toLowerCase().includes(q)
     );
-  }, [students, searchTerm]);
+  }, [visibleStudents, searchTerm]);
 
   useEffect(() => {
     if (viewingStudent && viewingStudent.aiReport) {
@@ -299,6 +330,9 @@ const TeacherView: React.FC<TeacherViewProps> = ({
   }, [trackingMode, trackingMonth, monthForActions]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    // ✅ TEACHER không được nhập excel
+    if (isTeacher) return;
+
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -308,7 +342,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
       const wb = XLSX.read(bstr, { type: "binary" });
       const studentMap = new Map<string, Student>();
 
-      students.forEach((s) => studentMap.set(s.mhs, { ...s }));
+      visibleStudents.forEach((s) => studentMap.set(s.mhs, { ...s }));
 
       wb.SheetNames.forEach((sheetName: string) => {
         const ws = wb.Sheets[sheetName];
@@ -365,7 +399,6 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
       const monthKey = inferredTaskMonth(student);
 
-      // tạo list actions local (server sẽ tự preserve theo monthKey khi bạn lưu)
       const newActions: StudyAction[] = (report.actions || []).map((a: any, idx: number) => ({
         id: `${student.mhs}-${Date.now()}-${idx}`,
         description: a.description,
@@ -373,10 +406,8 @@ const TeacherView: React.FC<TeacherViewProps> = ({
         ticks: [],
       }));
 
-      // persist to server with monthKey (actionsByMonth[monthKey])
       await persistReportAndActions(student.mhs, report, newActions, monthKey);
 
-      // update local UI
       onUpdateStudentReport(student.mhs, report, newActions);
     } catch (e: any) {
       alert(e?.message || "Không thể tạo báo cáo. Vui lòng kiểm tra API Key.");
@@ -386,6 +417,9 @@ const TeacherView: React.FC<TeacherViewProps> = ({
   };
 
   const handleBulkGenerate = async () => {
+    // ✅ TEACHER không được AI hàng loạt
+    if (isTeacher) return;
+
     const targets = filteredStudents.filter((s) => selectedMhs.has(s.mhs));
     if (targets.length === 0) {
       alert("Bạn chưa chọn học sinh nào.");
@@ -427,6 +461,9 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
   // ✅ Sync: new_only -> nếu 0 tháng mới thì mở modal chọn tháng (NO prompt)
   const handleSyncSheet = async () => {
+    // ✅ TEACHER không được sync sheet
+    if (isTeacher) return;
+
     setIsSyncing(true);
     setSyncHint("");
     try {
@@ -482,6 +519,9 @@ const TeacherView: React.FC<TeacherViewProps> = ({
   const clearAllMonths = () => setSyncSelectedMonths(new Set());
 
   const submitSyncSelectedMonths = async () => {
+    // ✅ TEACHER không được sync sheet
+    if (isTeacher) return;
+
     const months = Array.from(syncSelectedMonths).sort();
     if (months.length === 0) {
       alert("Bạn chưa chọn tháng nào.");
@@ -565,7 +605,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
       )}
 
       {/* ✅ Sync Month Modal (NO prompt) */}
-      {syncModalOpen && (
+      {syncModalOpen && !isTeacher && (
         <div className="fixed inset-0 bg-slate-900/55 backdrop-blur-sm z-[120] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex items-start justify-between gap-4">
@@ -699,7 +739,16 @@ const TeacherView: React.FC<TeacherViewProps> = ({
           <div className="bg-indigo-600 p-2.5 rounded-xl text-white shadow-lg shadow-indigo-600/30">
             <Users size={22} />
           </div>
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Quản lý Học tập</h1>
+          <div className="flex items-center">
+            <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Quản lý Học tập</h1>
+
+            {/* ✅ Badge lớp phụ trách */}
+            {isTeacher && teacherClass && (
+              <span className="ml-3 inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                Lớp phụ trách: {teacherClass}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -714,32 +763,37 @@ const TeacherView: React.FC<TeacherViewProps> = ({
             />
           </div>
 
-          <button
-            onClick={handleBulkGenerate}
-            disabled={!!bulkProgress}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold rounded-xl transition-all shadow-md hover:shadow-lg hover:shadow-indigo-500/30 transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            type="button"
-          >
-            <Sparkles size={18} />
-            AI Hàng loạt
-          </button>
+          {/* ✅ Ẩn nút nguy hiểm khi TEACHER */}
+          {!isTeacher && (
+            <>
+              <button
+                onClick={handleBulkGenerate}
+                disabled={!!bulkProgress}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold rounded-xl transition-all shadow-md hover:shadow-lg hover:shadow-indigo-500/30 transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                type="button"
+              >
+                <Sparkles size={18} />
+                AI Hàng loạt
+              </button>
 
-          <button
-            onClick={handleSyncSheet}
-            disabled={isSyncing || !!bulkProgress}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Đồng bộ dữ liệu từ Google Sheet (Admin)"
-            type="button"
-          >
-            {isSyncing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
-            Đồng bộ Sheet
-          </button>
+              <button
+                onClick={handleSyncSheet}
+                disabled={isSyncing || !!bulkProgress}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Đồng bộ dữ liệu từ Google Sheet (Admin)"
+                type="button"
+              >
+                {isSyncing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
+                Đồng bộ Sheet
+              </button>
 
-          <label className="flex items-center gap-2 px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold rounded-xl cursor-pointer transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
-            <Upload size={18} />
-            Nhập Excel
-            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileUpload} />
-          </label>
+              <label className="flex items-center gap-2 px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold rounded-xl cursor-pointer transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                <Upload size={18} />
+                Nhập Excel
+                <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileUpload} />
+              </label>
+            </>
+          )}
 
           <button
             onClick={onLogout}
@@ -760,12 +814,18 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                   <th className="px-6 py-5 w-10">
                     <input
                       type="checkbox"
-                      checked={filteredStudents.length > 0 && filteredStudents.every((s) => selectedMhs.has(s.mhs))}
+                      disabled={isTeacher} // ✅ teacher không dùng bulk select
+                      checked={
+                        !isTeacher &&
+                        filteredStudents.length > 0 &&
+                        filteredStudents.every((s) => selectedMhs.has(s.mhs))
+                      }
                       onChange={(e) => {
+                        if (isTeacher) return;
                         if (e.target.checked) setSelectedMhs(new Set(filteredStudents.map((s) => s.mhs)));
                         else setSelectedMhs(new Set());
                       }}
-                      title="Chọn/Bỏ chọn tất cả học sinh đang hiển thị"
+                      title={isTeacher ? "Giáo viên không dùng chọn hàng loạt" : "Chọn/Bỏ chọn tất cả học sinh đang hiển thị"}
                     />
                   </th>
                   <th className="px-6 py-5">MHS</th>
@@ -783,7 +843,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                 {filteredStudents.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="px-6 py-10 text-center text-slate-400 italic">
-                      Không tìm thấy học sinh nào. Hãy nhập Excel hoặc Đồng bộ Sheet.
+                      {isTeacher ? "Chưa có học sinh trong lớp phụ trách." : "Không tìm thấy học sinh nào. Hãy nhập Excel hoặc Đồng bộ Sheet."}
                     </td>
                   </tr>
                 ) : (
@@ -809,7 +869,9 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
                     const totalTicksInTaskMonth = acts.reduce((acc, act: any) => {
                       const ticks = Array.isArray(act?.ticks) ? act.ticks : [];
-                      const done = ticks.filter((t: any) => t?.completed && String(t?.date || "").slice(0, 7) === taskMonth).length;
+                      const done = ticks.filter(
+                        (t: any) => t?.completed && String(t?.date || "").slice(0, 7) === taskMonth
+                      ).length;
                       return acc + done;
                     }, 0);
 
@@ -818,8 +880,10 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                         <td className="px-6 py-4">
                           <input
                             type="checkbox"
-                            checked={selectedMhs.has(student.mhs)}
+                            disabled={isTeacher} // ✅ teacher không dùng bulk select
+                            checked={!isTeacher && selectedMhs.has(student.mhs)}
                             onChange={(e) => {
+                              if (isTeacher) return;
                               setSelectedMhs((prev) => {
                                 const next = new Set(prev);
                                 if (e.target.checked) next.add(student.mhs);
@@ -853,7 +917,9 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                           >
                             {avg}
                           </span>
-                          {lastScore && <span className="text-[10px] text-slate-400 ml-2">({(lastScore as any).month})</span>}
+                          {lastScore && (
+                            <span className="text-[10px] text-slate-400 ml-2">({(lastScore as any).month})</span>
+                          )}
                         </td>
 
                         <td className="px-6 py-4">
@@ -1169,7 +1235,6 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                   ) : (
                     <div className="space-y-6">
                       {actionsForView.map((action: any) => {
-                        const dateSet = new Set(trackingDates);
                         const tickMap = buildTickMap(action);
                         const countDone = trackingDates.reduce((acc, d) => acc + (tickMap.get(d) ? 1 : 0), 0);
 
