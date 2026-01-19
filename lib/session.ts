@@ -69,7 +69,9 @@ export async function getSession(): Promise<SessionPayload | null> {
   const secret = process.env.APP_SECRET;
   if (!secret) return null;
 
-  const store = cookies();
+  // ✅ FIX: Next.js của bạn cookies() trả về Promise
+  const store = await cookies();
+
   const value = store.get(COOKIE_NAME)?.value;
   if (!value) return null;
 
@@ -87,11 +89,21 @@ export async function getSession(): Promise<SessionPayload | null> {
   if (sig !== expected) return null;
 
   try {
-    const obj = JSON.parse(raw) as SessionPayload;
+    const obj = JSON.parse(raw) as any;
     if (!obj || typeof obj !== "object") return null;
-    if (obj.role === "ADMIN") return obj;
-    if (obj.role === "TEACHER") return obj;
-    if (obj.role === "STUDENT") return obj;
+
+    if (obj.role === "ADMIN" && typeof obj.username === "string") return obj as AdminSession;
+
+    if (
+      obj.role === "TEACHER" &&
+      typeof obj.username === "string" &&
+      typeof obj.teacherClass === "string"
+    )
+      return obj as TeacherSession;
+
+    if (obj.role === "STUDENT" && typeof obj.username === "string" && typeof obj.mhs === "string")
+      return obj as StudentSession;
+
     return null;
   } catch {
     return null;
