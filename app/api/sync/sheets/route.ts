@@ -1,37 +1,9 @@
+// app/api/sync/sheets/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
-import crypto from "crypto";
+import { getSession } from "@/lib/session";
 
-const COOKIE_NAME = "dd_session";
-
-type SessionPayload = { role: "ADMIN" | "STUDENT"; mhs: string | null };
-
-function sign(raw: string, secret: string): string {
-  return crypto.createHmac("sha256", secret).update(raw).digest("hex");
-}
-
-async function readSession(): Promise<SessionPayload | null> {
-  const secret = process.env.APP_SECRET;
-  if (!secret) return null;
-
-  const cookieStore = await cookies();
-  const value = cookieStore.get(COOKIE_NAME)?.value;
-  if (!value) return null;
-
-  const [b64, sig] = value.split(".");
-  if (!b64 || !sig) return null;
-
-  const raw = Buffer.from(b64, "base64").toString("utf-8");
-  const expected = sign(raw, secret);
-  if (sig !== expected) return null;
-
-  try {
-    return JSON.parse(raw) as SessionPayload;
-  } catch {
-    return null;
-  }
-}
+export const runtime = "nodejs";
 
 // CSV parser đơn giản (đủ cho bảng điểm)
 function parseCSV(text: string): string[][] {
@@ -117,33 +89,66 @@ type SyncMode = "new_only" | "months";
 type SyncOpts = { mode?: SyncMode; selectedMonths?: string[] };
 
 function isMonthKey(x: string) {
-  return /^\d{4}-\d{2}$/.test(x);
+  return /^\d{4}-\d{2}$/.test(String(x || "").trim());
 }
 
-function getLatestMonthFromScores(scores: ScoreData[] | undefined): string {
+function isoMonthNow() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function nextMonthKey(monthKey: string): string {
+  const mk = String(monthKey || "").trim();
+  if (!isMonthKey(mk)) return isoMonthNow();
+  const [yStr, mStr] = mk.split("-");
+  let y = parseInt(yStr, 10);
+  let m = parseInt(mStr, 10);
+  m += 1;
+  if (m === 13) {
+    m = 1;
+    y += 1;
+  }
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}`;
+}
+
+function getLatestScoreMonth(scores: ScoreData[] | undefined): string {
   const arr = Array.isArray(scores) ? scores : [];
   const last = arr[arr.length - 1];
   const mk = String(last?.month || "").trim();
-  return isMonthKey(mk) ? mk : new Date().toISOString().slice(0, 7);
+  return isMonthKey(mk) ? mk : isoMonthNow();
 }
 
-// ✅ migrate dữ liệu cũ: nếu chỉ có activeActions -> đưa vào actionsByMonth theo tháng mới nhất
+function getTaskMonthFromScores(scores: ScoreData[] | undefined): string {
+  // điểm tháng N -> nhiệm vụ tháng N+1
+  return nextMonthKey(getLatestScoreMonth(scores));
+}
+
+// ✅ migrate dữ liệu cũ:
+// - nếu chỉ có activeActions -> đưa vào actionsByMonth theo "tháng nhiệm vụ hiện hành" (N+1)
+// - activeActions sẽ trỏ vào tháng nhiệm vụ nếu có, để UI cũ vẫn chạy
 function normalizeActionsStorage(st: Student): Student {
   const s: Student = { ...st };
   s.actionsByMonth = s.actionsByMonth && typeof s.actionsByMonth === "object" ? s.actionsByMonth : {};
 
   const aa = Array.isArray(s.activeActions) ? s.activeActions : [];
+  const taskMonth = getTaskMonthFromScores(s.scores);
+
+  // migrate legacy -> actionsByMonth[taskMonth] nếu chưa có dữ liệu tháng đó
   if (aa.length) {
-    const mk = getLatestMonthFromScores(s.scores);
-    if (!Array.isArray(s.actionsByMonth![mk]) || s.actionsByMonth![mk]!.length === 0) {
-      s.actionsByMonth![mk] = aa;
+    if (!Array.isArray(s.actionsByMonth![taskMonth]) || s.actionsByMonth![taskMonth]!.length === 0) {
+      s.actionsByMonth![taskMonth] = aa;
     }
   }
 
-  // luôn set activeActions = tháng mới nhất để UI cũ vẫn chạy
-  const latest = getLatestMonthFromScores(s.scores);
-  if (Array.isArray(s.actionsByMonth![latest])) s.activeActions = s.actionsByMonth![latest];
-  else s.activeActions = aa;
+  // ưu tiên activeActions = nhiệm vụ tháng hiện hành (taskMonth)
+  if (Array.isArray(s.actionsByMonth![taskMonth]) && s.actionsByMonth![taskMonth]!.length > 0) {
+    s.activeActions = s.actionsByMonth![taskMonth];
+  } else {
+    // fallback: nếu có tháng nào trong actionsByMonth thì lấy tháng lớn nhất
+    const keys = Object.keys(s.actionsByMonth || {}).filter((k) => isMonthKey(k)).sort();
+    const latestTask = keys[keys.length - 1];
+    if (latestTask && Array.isArray(s.actionsByMonth![latestTask])) s.activeActions = s.actionsByMonth![latestTask];
+    else s.activeActions = aa;
+  }
 
   return s;
 }
@@ -188,7 +193,6 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
   const monthRow = rows[0] ?? []; // Row 1: month_key
   const headerRow = rows[1] ?? []; // Row 2: column names
-
   const header2 = headerRow.map(normHeader);
 
   const idxMhs = header2.indexOf("MHS");
@@ -239,25 +243,24 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   let monthKeysToSync: string[] = monthKeysAll;
 
   if (mode === "new_only") {
-  monthKeysToSync = monthKeysAll.filter((m) => !oldMonths.has(m));
+    monthKeysToSync = monthKeysAll.filter((m) => !oldMonths.has(m));
 
-  // ✅ NEW: nếu có HS mới mà không có "tháng mới" -> sync tất cả tháng để HS mới có điểm
-  let hasNewStudents = false;
-  for (let r = 2; r < rows.length; r++) {
-    const row = rows[r] ?? [];
-    const mhs = String(row[idxMhs] ?? "").trim();
-    if (!mhs) continue;
-    if (!oldMap.has(mhs)) {
-      hasNewStudents = true;
-      break;
+    // ✅ NEW: nếu có HS mới mà không có "tháng mới" -> sync tất cả tháng để HS mới có điểm
+    let hasNewStudents = false;
+    for (let r = 2; r < rows.length; r++) {
+      const row = rows[r] ?? [];
+      const mhs = String(row[idxMhs] ?? "").trim();
+      if (!mhs) continue;
+      if (!oldMap.has(mhs)) {
+        hasNewStudents = true;
+        break;
+      }
     }
-  }
 
-  if (monthKeysToSync.length === 0 && hasNewStudents) {
-    monthKeysToSync = monthKeysAll;
-  }
-}
- else if (mode === "months") {
+    if (monthKeysToSync.length === 0 && hasNewStudents) {
+      monthKeysToSync = monthKeysAll;
+    }
+  } else if (mode === "months") {
     if (selectedMonths.length > 0) {
       const selSet = new Set(selectedMonths);
       monthKeysToSync = monthKeysAll.filter((m) => selSet.has(m));
@@ -339,9 +342,9 @@ async function doSyncFromSheet(opts?: SyncOpts) {
       actionsByMonth: mergedABM,
     };
 
-    // activeActions = tháng mới nhất để UI cũ vẫn chạy
-    const latest = getLatestMonthFromScores(merged.scores);
-    if (Array.isArray(merged.actionsByMonth?.[latest])) merged.activeActions = merged.actionsByMonth![latest];
+    // activeActions ưu tiên theo "tháng nhiệm vụ" hiện hành
+    const taskMonth = getTaskMonthFromScores(merged.scores);
+    if (Array.isArray(merged.actionsByMonth?.[taskMonth])) merged.activeActions = merged.actionsByMonth![taskMonth];
     else merged.activeActions = old?.activeActions ?? ns.activeActions ?? [];
 
     return normalizeActionsStorage(merged);
@@ -374,7 +377,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
  * POST: Admin bấm nút trong app
  */
 export async function POST(req: Request) {
-  const session = await readSession();
+  const session = await getSession();
   if (!session || session.role !== "ADMIN") {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
@@ -415,4 +418,3 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
   }
 }
-
