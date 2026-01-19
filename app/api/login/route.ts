@@ -2,8 +2,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { setSession } from "@/lib/session";
-import { fetchAccountsFromSheet, getOverridePassword } from "@/lib/accounts";
-import { fetchTeachersFromSheet } from "@/lib/teachers";
 
 export const runtime = "nodejs";
 
@@ -13,17 +11,28 @@ function isAdmin(username: string, password: string) {
   return username === u && password === p;
 }
 
-function uniqNonEmpty(arr: Array<string | null | undefined>) {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const v of arr) {
-    const s = String(v ?? "").trim();
-    if (!s) continue;
-    if (seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  return out;
+// ✅ HS: cho phép đăng nhập bằng mật khẩu mới (override) hoặc mật khẩu mặc định
+async function allowStudentPassword(mhs: string, password: string) {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) throw new Error("Missing Supabase env");
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  const { data, error } = await supabase
+    .from("account_overrides")
+    .select("new_password")
+    .eq("username", mhs)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+
+  const override = String((data as any)?.new_password || "").trim();
+
+  // nếu đã đổi MK => chỉ cho login bằng override
+  if (override) return password === override;
+
+  // chưa đổi => cho login bằng MHS hoặc 123456 (tuỳ bạn)
+  return password === mhs || password === "123456";
 }
 
 async function findStudentByMhs(mhs: string) {
@@ -62,96 +71,38 @@ export async function POST(req: Request) {
         ok: true,
         user: { username: "admin", name: "Admin", role: "ADMIN" },
       });
-      setSession(res, { role: "ADMIN", mhs: null });
+
+      // ✅ FIX: add required fields
+      setSession(res, { role: "ADMIN", mhs: null, username: "admin", name: "Admin" });
       return res;
-    }
-
-    // ✅ TEACHER (GVCN) - check trước STUDENT để không bị hiểu nhầm
-    // Rule: giống HS
-    // 1) override DB (key = teacher.username) => ONLY override
-    // 2) else sheet NEW_PASSWORD => ONLY new
-    // 3) else sheet DEFAULT_PASSWORD => ONLY default
-    try {
-      const teachers = await fetchTeachersFromSheet();
-      const t = teachers.get(username);
-
-      if (t) {
-        const override = await getOverridePassword(t.username);
-        const effective =
-          (override && override.trim()) ||
-          (t.newPassword && t.newPassword.trim()) ||
-          (t.defaultPassword && t.defaultPassword.trim()) ||
-          "";
-
-        if (!effective) {
-          return NextResponse.json({ ok: false, error: "No teacher password configured" }, { status: 500 });
-        }
-
-        const allowed = uniqNonEmpty([effective]);
-        if (!allowed.includes(password)) {
-          return NextResponse.json({ ok: false, error: "Sai mật khẩu" }, { status: 401 });
-        }
-
-        const res = NextResponse.json({
-          ok: true,
-          user: { username: t.username, name: t.gvcnName || t.username, role: "TEACHER" },
-        });
-
-        setSession(res, {
-          role: "TEACHER",
-          mhs: null,
-          teacherUsername: t.username,
-          teacherClass: t.class,
-          teacherName: t.gvcnName || "",
-        });
-
-        return res;
-      }
-    } catch {
-      // nếu TEACHERS_CSV_URL chưa set thì bỏ qua TEACHER login, không làm hỏng STUDENT login
     }
 
     // ✅ STUDENT (username = MHS)
     const mhs = username;
 
-    // Must exist in app_state
+    const okPass = await allowStudentPassword(mhs, password);
+    if (!okPass) {
+      return NextResponse.json({ ok: false, error: "Sai mật khẩu" }, { status: 401 });
+    }
+
     const student = await findStudentByMhs(mhs);
     if (!student) {
       return NextResponse.json({ ok: false, error: "Không tìm thấy học sinh" }, { status: 404 });
-    }
-
-    // Read accounts sheet row
-    const accounts = await fetchAccountsFromSheet();
-    const acc = accounts.get(mhs);
-    if (!acc) {
-      return NextResponse.json({ ok: false, error: "Account not found in sheet" }, { status: 404 });
-    }
-
-    // Effective password rules (STRICT):
-    // 1) override DB => ONLY override
-    // 2) else sheet NEW_PASSWORD => ONLY new
-    // 3) else sheet DEFAULT_PASSWORD => ONLY default
-    const override = await getOverridePassword(acc.username || mhs);
-    const effective =
-      (override && override.trim()) ||
-      (acc.newPassword && acc.newPassword.trim()) ||
-      (acc.defaultPassword && acc.defaultPassword.trim()) ||
-      "";
-
-    if (!effective) {
-      return NextResponse.json({ ok: false, error: "No password configured" }, { status: 500 });
-    }
-
-    const allowed = uniqNonEmpty([effective]);
-    if (!allowed.includes(password)) {
-      return NextResponse.json({ ok: false, error: "Sai mật khẩu" }, { status: 401 });
     }
 
     const res = NextResponse.json({
       ok: true,
       user: { username: mhs, name: student.name || mhs, role: "STUDENT" },
     });
-    setSession(res, { role: "STUDENT", mhs });
+
+    // ✅ FIX: add required fields
+    setSession(res, {
+      role: "STUDENT",
+      mhs,
+      username: mhs,
+      name: student.name || mhs,
+    });
+
     return res;
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "Server error" }, { status: 500 });
