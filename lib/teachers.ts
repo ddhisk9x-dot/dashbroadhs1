@@ -43,25 +43,21 @@ function parseCSV(text: string): string[][] {
   return rows;
 }
 
-function stripDiacritics(s: string) {
-  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+function looksLikeHtml(text: string): boolean {
+  const s = text.slice(0, 500).toLowerCase();
+  return s.includes("<!doctype html") || s.includes("<html") || s.includes("google sheets");
 }
 
-function normKey(v: any): string {
-  return stripDiacritics(String(v ?? ""))
+function normHeaderKey(v: any): string {
+  return String(v ?? "")
     .replace(/\uFEFF/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .toUpperCase();
 }
 
-function h(v: any) {
+function normVal(v: any): string {
   return String(v ?? "").trim();
-}
-
-function looksLikeHtml(text: string): boolean {
-  const s = text.slice(0, 500).toLowerCase();
-  return s.includes("<!doctype html") || s.includes("<html") || s.includes("google sheets");
 }
 
 function idxOfAny(header: string[], candidates: string[]): number {
@@ -73,12 +69,13 @@ function idxOfAny(header: string[], candidates: string[]): number {
 }
 
 export type TeacherRow = {
-  class: string;           // lớp phụ trách
-  gvcnName: string;        // tên GVCN
-  username: string;        // tài khoản đăng nhập
-  defaultPassword: string; // mk mặc định
-  newPassword: string;     // mk mới (nếu có)
-  email?: string;
+  teacherName: string;
+  teacherClass: string;
+  username: string;
+  defaultPassword: string;
+  newPassword: string; // optional, nếu bạn có cột
+  updatedAt?: string;
+  note?: string;
 };
 
 export async function fetchTeachersFromSheet(): Promise<Map<string, TeacherRow>> {
@@ -90,49 +87,46 @@ export async function fetchTeachersFromSheet(): Promise<Map<string, TeacherRow>>
     redirect: "follow",
     headers: { Accept: "text/csv,text/plain;q=0.9,*/*;q=0.8" },
   });
-
   if (!resp.ok) throw new Error(`Fetch teachers CSV failed: ${resp.status}`);
 
   const text = await resp.text();
   const contentType = resp.headers.get("content-type") || "";
   if (contentType.includes("text/html") || looksLikeHtml(text)) {
-    throw new Error("TEACHERS_CSV_URL is not CSV (got HTML). Check share setting + export?format=csv&gid=...");
+    throw new Error("TEACHERS_CSV_URL is not CSV (got HTML). Use export?format=csv&gid=...");
   }
 
   const rows = parseCSV(text);
   if (rows.length < 2) return new Map();
 
-  // header = dòng 0
-  const header = (rows[0] ?? []).map(normKey);
+  const header = (rows[0] ?? []).map(normHeaderKey);
 
-  const idxClass = idxOfAny(header, ["CLASS", "LOP", "LỚP"]);
-  const idxName = idxOfAny(header, ["GVCN_NAME", "TEN GVCN", "GVCN", "GIAO VIEN"]);
-  const idxUsername = idxOfAny(header, ["USERNAME", "TAI KHOAN", "ACCOUNT"]);
-  const idxDef = idxOfAny(header, ["DEFAULT_PASSWORD", "DEFAULT PASS", "DEFAULTPASSWORD"]);
+  const idxName = idxOfAny(header, ["TEN GVCN", "GVCN", "TEACHER_NAME", "NAME", "HỌ VÀ TÊN", "HO VA TEN"]);
+  const idxClass = idxOfAny(header, ["LOP", "LỚP", "TEACHER_CLASS", "CLASS"]);
+  const idxUsername = idxOfAny(header, ["TAI KHOAN", "TÀI KHOẢN", "USERNAME", "ACCOUNT"]);
+  const idxDef = idxOfAny(header, ["DEFAULT_PASSWORD", "DEFAULT PASS", "DEFAULTPASSWORD", "MAT KHAU", "MẬT KHẨU"]);
   const idxNew = idxOfAny(header, ["NEW_PASSWORD", "NEW PASS", "NEWPASSWORD"]);
-  const idxEmail = idxOfAny(header, ["EMAIL", "MAIL"]);
+  const idxUpdatedAt = idxOfAny(header, ["UPDATED_AT", "UPDATEDAT", "CAP NHAT", "CẬP NHẬT"]);
+  const idxNote = idxOfAny(header, ["NOTE", "GHI CHU", "GHICHU"]);
 
-  if (idxClass < 0) throw new Error("Missing column CLASS (TEACHERS)");
-  if (idxUsername < 0) throw new Error("Missing column USERNAME (TEACHERS)");
+  if (idxClass < 0) throw new Error("Missing column LỚP (TEACHERS)");
+  if (idxUsername < 0) throw new Error("Missing column TÀI KHOẢN/USERNAME (TEACHERS)");
   if (idxDef < 0) throw new Error("Missing column DEFAULT_PASSWORD (TEACHERS)");
-  if (idxNew < 0) throw new Error("Missing column NEW_PASSWORD (TEACHERS)");
 
   const map = new Map<string, TeacherRow>();
 
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r] ?? [];
-    const username = h(row[idxUsername]);
-    const cls = h(row[idxClass]);
-
-    if (!username || !cls) continue;
+    const username = normVal(row[idxUsername]);
+    if (!username) continue;
 
     const t: TeacherRow = {
-      class: cls,
-      gvcnName: idxName >= 0 ? h(row[idxName]) : "",
+      teacherName: idxName >= 0 ? normVal(row[idxName]) : "",
+      teacherClass: normVal(row[idxClass]),
       username,
-      defaultPassword: h(row[idxDef]),
-      newPassword: h(row[idxNew]),
-      email: idxEmail >= 0 ? h(row[idxEmail]) : "",
+      defaultPassword: normVal(row[idxDef]),
+      newPassword: idxNew >= 0 ? normVal(row[idxNew]) : "",
+      updatedAt: idxUpdatedAt >= 0 ? normVal(row[idxUpdatedAt]) : "",
+      note: idxNote >= 0 ? normVal(row[idxNote]) : "",
     };
 
     map.set(username, t);
