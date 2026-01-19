@@ -1,104 +1,30 @@
 // lib/session.ts
-import crypto from "crypto";
 import { cookies } from "next/headers";
-import type { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import crypto from "crypto";
 
 const COOKIE_NAME = "dd_session";
 
 export type SessionRole = "ADMIN" | "STUDENT" | "TEACHER";
 
-export type TeacherInfo = {
-  username: string; // tài khoản đăng nhập teacher
-  name?: string;    // tên hiển thị (optional)
-  class: string;    // lớp phụ trách (vd: "8A1")
-};
-
-export type SessionPayload = {
-  role: SessionRole;
-  mhs: string | null;        // dùng cho STUDENT (giữ tương thích)
-  teacher?: TeacherInfo;     // dùng cho TEACHER
-};
+export type SessionPayload =
+  | { role: "ADMIN"; mhs: null; teacherClass?: null; username?: string; name?: string }
+  | { role: "STUDENT"; mhs: string; teacherClass?: null; username?: string; name?: string }
+  | { role: "TEACHER"; mhs: null; teacherClass: string; username: string; name?: string };
 
 function sign(raw: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(raw).digest("hex");
 }
 
-function isObj(v: any): v is Record<string, any> {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
+function encode(payload: SessionPayload, secret: string): string {
+  const raw = JSON.stringify(payload);
+  const b64 = Buffer.from(raw, "utf-8").toString("base64");
+  const sig = sign(raw, secret);
+  return `${b64}.${sig}`;
 }
 
-function sanitizeSession(obj: any): SessionPayload | null {
-  if (!isObj(obj)) return null;
-
-  const role = String(obj.role || "").trim() as SessionRole;
-  if (role !== "ADMIN" && role !== "STUDENT" && role !== "TEACHER") return null;
-
-  const mhsRaw = obj.mhs;
-  const mhs =
-    mhsRaw === null || mhsRaw === undefined ? null : String(mhsRaw).trim();
-
-  const base: SessionPayload = { role, mhs: mhs || null };
-
-  if (role === "TEACHER") {
-    const t = obj.teacher;
-    if (!isObj(t)) return null;
-    const username = String(t.username || "").trim();
-    const name = String(t.name || "").trim();
-    const cls = String(t.class || "").trim();
-
-    if (!username || !cls) return null;
-
-    base.mhs = null; // teacher không dùng mhs
-    base.teacher = {
-      username,
-      ...(name ? { name } : {}),
-      class: cls,
-    };
-  }
-
-  if (role === "STUDENT") {
-    if (!base.mhs) return null; // student bắt buộc có mhs
-  }
-
-  // ADMIN: mhs có thể null (giữ như cũ)
-  return base;
-}
-
-export function setSession(res: NextResponse, payload: SessionPayload) {
-  const secret = process.env.APP_SECRET;
-  if (!secret) throw new Error("Missing env: APP_SECRET");
-
-  const clean = sanitizeSession(payload);
-  if (!clean) throw new Error("Invalid session payload");
-
-  const raw = JSON.stringify(clean);
-  const value = Buffer.from(raw).toString("base64") + "." + sign(raw, secret);
-
-  res.cookies.set(COOKIE_NAME, value, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-  });
-}
-
-export function clearSession(res: NextResponse) {
-  res.cookies.set(COOKIE_NAME, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
-}
-
-export async function getSession(): Promise<SessionPayload | null> {
-  const secret = process.env.APP_SECRET;
-  if (!secret) return null;
-
-  const store = await cookies();
-  const value = store.get(COOKIE_NAME)?.value;
-  if (!value) return null;
-
-  const [b64, sig] = value.split(".");
+function decode(value: string, secret: string): SessionPayload | null {
+  const [b64, sig] = String(value || "").split(".");
   if (!b64 || !sig) return null;
 
   const raw = Buffer.from(b64, "base64").toString("utf-8");
@@ -106,9 +32,65 @@ export async function getSession(): Promise<SessionPayload | null> {
   if (sig !== expected) return null;
 
   try {
-    const parsed = JSON.parse(raw);
-    return sanitizeSession(parsed);
+    const obj = JSON.parse(raw);
+
+    // allow backward-compatible cookies
+    const role = String(obj?.role || "").toUpperCase() as SessionRole;
+    const mhs = obj?.mhs === null ? null : String(obj?.mhs || "").trim();
+    const teacherClass = String(obj?.teacherClass || "").trim();
+    const username = String(obj?.username || "").trim();
+    const name = String(obj?.name || "").trim();
+
+    if (role === "ADMIN") return { role: "ADMIN", mhs: null, teacherClass: null, username, name };
+    if (role === "STUDENT") return mhs ? { role: "STUDENT", mhs, teacherClass: null, username: mhs, name } : null;
+    if (role === "TEACHER") {
+      if (!teacherClass || !username) return null;
+      return { role: "TEACHER", mhs: null, teacherClass, username, name };
+    }
+
+    return null;
   } catch {
     return null;
   }
+}
+
+export function setSession(res: NextResponse, payload: SessionPayload) {
+  const secret = process.env.APP_SECRET;
+  if (!secret) throw new Error("Missing env: APP_SECRET");
+
+  const value = encode(payload, secret);
+
+  // 30 days
+  res.cookies.set({
+    name: COOKIE_NAME,
+    value,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+  });
+}
+
+export async function getSession(): Promise<SessionPayload | null> {
+  const secret = process.env.APP_SECRET;
+  if (!secret) return null;
+
+  const cookieStore = await cookies();
+  const value = cookieStore.get(COOKIE_NAME)?.value;
+  if (!value) return null;
+
+  return decode(value, secret);
+}
+
+export function clearSession(res: NextResponse) {
+  res.cookies.set({
+    name: COOKIE_NAME,
+    value: "",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 0,
+  });
 }
