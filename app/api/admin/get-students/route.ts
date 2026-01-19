@@ -22,14 +22,4 @@ export async function GET() {
 
   if (session.role === "TEACHER") {
     const cls = String(session.teacherClass || "").trim();
-    const filtered = all.filter((s: any) => String(s?.class || "").trim() === cls);
-
-    return NextResponse.json({
-      ok: true,
-      students: filtered,
-      meta: { role: "TEACHER", teacherClass: cls, username: session.username, name: session.name || "" },
-    });
-  }
-
-  return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-}
+    const filtered = all.filter((
