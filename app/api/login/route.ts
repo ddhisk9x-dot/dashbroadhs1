@@ -33,19 +33,6 @@ async function findStudentByMhs(mhs: string) {
   return st || null;
 }
 
-function uniqNonEmpty(arr: Array<string | null | undefined>) {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const v of arr) {
-    const s = String(v ?? "").trim();
-    if (!s) continue;
-    if (seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  return out;
-}
-
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -74,7 +61,7 @@ export async function POST(req: Request) {
       if (t) {
         const override = await getOverridePassword(username);
 
-        // Quy tắc giống HS:
+        // Quy tắc:
         // 1) override (DB) nếu có => CHỈ dùng override
         // 2) nếu sheet có NEW_PASSWORD => CHỈ dùng NEW_PASSWORD
         // 3) else => CHỈ dùng DEFAULT_PASSWORD
@@ -88,8 +75,7 @@ export async function POST(req: Request) {
           return NextResponse.json({ ok: false, error: "No password configured" }, { status: 500 });
         }
 
-        const allowed = uniqNonEmpty([effective]);
-        if (!allowed.includes(password)) {
+        if (password !== effective) {
           return NextResponse.json({ ok: false, error: "Sai mật khẩu" }, { status: 401 });
         }
 
@@ -114,7 +100,7 @@ export async function POST(req: Request) {
         return res;
       }
     } catch {
-      // nếu TEACHERS_CSV_URL chưa set thì bỏ qua TEACHER login
+      // TEACHERS_CSV_URL chưa set / lỗi fetch -> bỏ qua TEACHER login
     }
 
     // ✅ STUDENT (username = MHS)
@@ -136,7 +122,7 @@ export async function POST(req: Request) {
     // Effective password rules:
     // 1) override (DB) if exists => ONLY that is valid
     // 2) else sheet NEW_PASSWORD => ONLY that is valid
-    // 3) else DEFAULT_PASSWORD => ONLY that is valid (reset state)
+    // 3) else DEFAULT_PASSWORD => ONLY that is valid
     const override = await getOverridePassword(acc.username || mhs);
     const effective =
       (override && override.trim()) ||
@@ -148,8 +134,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "No password configured" }, { status: 500 });
     }
 
-    const allowed = uniqNonEmpty([effective]);
-    if (!allowed.includes(password)) {
+    if (password !== effective) {
       return NextResponse.json({ ok: false, error: "Sai mật khẩu" }, { status: 401 });
     }
 
