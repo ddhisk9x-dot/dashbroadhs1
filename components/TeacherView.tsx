@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState, useEffect } from "react";
 import TeacherResetPasswordButton from "./TeacherResetPasswordButton";
+import AdminChangePasswordButton from "./AdminChangePasswordButton";
 import { Student, ScoreData, StudyAction, AIReport } from "../types";
 import { generateStudentReport } from "../services/clientApi";
 import {
@@ -794,7 +795,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               </label>
             </>
           )}
-
+<AdminChangePasswordButton />
           <button
             onClick={onLogout}
             className="text-sm font-semibold text-slate-500 hover:text-red-500 transition-colors px-2 ml-2"
