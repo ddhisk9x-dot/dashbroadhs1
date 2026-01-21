@@ -1,341 +1,193 @@
+// app/api/ai/generate-report/route.ts
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getAppState, setAppState } from "@/lib/supabaseServer";
-import { GoogleGenAI } from "@google/genai";
+import { getAppState, setAppState } from "@/lib/appstate";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const runtime = "nodejs";
 
-type MonthScore = {
-  month: string;
-  math: number | null;
-  lit: number | null;
-  eng: number | null;
+type ScoreData = { month: string; math: number | null; lit: number | null; eng: number | null };
+
+type Student = {
+  mhs: string;
+  name: string;
+  class: string;
+  scores: ScoreData[];
+  aiReport?: any;
+
+  actionsByMonth?: Record<string, any[]>;
+  activeActions?: any[];
 };
 
-type ActionItem = { description: string; frequency: string };
-
-const SCALE_MAX = 15;
-
-function isMonthKey(m: string) {
-  return /^\d{4}-\d{2}$/.test(String(m || "").trim());
+function isMonthKey(x: string) {
+  return /^\d{4}-\d{2}$/.test(x);
 }
 
-function nextMonthKey(monthKey: string): string {
-  const m = String(monthKey || "").trim();
-  if (!isMonthKey(m)) return new Date().toISOString().slice(0, 7);
-  const [yStr, moStr] = m.split("-");
-  let y = Number(yStr);
-  let mo = Number(moStr);
-  mo += 1;
-  if (mo === 13) {
-    mo = 1;
-    y += 1;
-  }
-  return `${String(y).padStart(4, "0")}-${String(mo).padStart(2, "0")}`;
+function getLatestMonthFromScores(scores: ScoreData[] | undefined): string {
+  const arr = Array.isArray(scores) ? scores : [];
+  const last = arr[arr.length - 1];
+  const mk = String(last?.month || "").trim();
+  return isMonthKey(mk) ? mk : new Date().toISOString().slice(0, 7);
 }
 
-function safeNum(v: any): number | null {
-  if (v === undefined || v === null || v === "") return null;
-  const n = typeof v === "number" ? v : parseFloat(String(v).replace(",", "."));
-  return Number.isFinite(n) ? n : null;
-}
-
-function pickLatest(scores: any[]): MonthScore | null {
-  if (!Array.isArray(scores) || scores.length === 0) return null;
-  const last = scores[scores.length - 1] || {};
-  return {
-    month: String(last.month || "gần đây"),
-    math: safeNum(last.math),
-    lit: safeNum(last.lit),
-    eng: safeNum(last.eng),
-  };
-}
-
-function pickPrev(scores: any[]): MonthScore | null {
-  if (!Array.isArray(scores) || scores.length < 2) return null;
-  const prev = scores[scores.length - 2] || {};
-  return {
-    month: String(prev.month || "trước đó"),
-    math: safeNum(prev.math),
-    lit: safeNum(prev.lit),
-    eng: safeNum(prev.eng),
-  };
-}
-
-function avg3(entry: MonthScore | null): number | null {
-  if (!entry) return null;
-  const arr = [entry.math, entry.lit, entry.eng].filter((x) => x !== null) as number[];
-  if (arr.length === 0) return null;
-  const s = arr.reduce((a, b) => a + b, 0);
-  return s / arr.length;
-}
-
-function delta(a: number | null, b: number | null): number | null {
-  if (a === null || b === null) return null;
-  return a - b;
-}
-
-function band15(x: number | null): string {
-  if (x === null) return "NO_DATA";
-  if (x < 5) return "VERY_LOW";
-  if (x < 7.5) return "LOW";
-  if (x < 10.5) return "MID";
-  if (x < 12.5) return "GOOD";
-  return "EXCELLENT";
-}
-
-function riskSuggest(
-  latestAvg: number | null,
-  dMath: number | null,
-  dLit: number | null,
-  dEng: number | null
-): "Thấp" | "Trung bình" | "Cao" {
-  const drops = [dMath, dLit, dEng].filter((x) => x !== null) as number[];
-  const bigDrop = drops.some((x) => x <= -1.5);
-  const midDrop = drops.some((x) => x <= -0.8);
-
-  if (latestAvg !== null && latestAvg < 7.5) return "Cao";
-  if (bigDrop) return "Cao";
-  if (latestAvg !== null && latestAvg < 10.5) return "Trung bình";
-  if (midDrop) return "Trung bình";
-  return "Thấp";
-}
-
-function normText(s: any): string {
-  return String(s ?? "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
+function normalizeFrequency(x: any): "daily" | "weekly" | "monthly" {
+  const s = String(x ?? "")
     .trim()
-    .replace(/[“”"']/g, "")
-    .replace(/[.,;:!?()\[\]{}<>]/g, "");
+    .toLowerCase();
+  if (s === "daily" || s === "weekly" || s === "monthly") return s;
+  return "weekly";
 }
 
-function normalizeFrequency(s: any): string {
-  const t = String(s ?? "").toLowerCase();
-  if (t.includes("hàng ngày") || t.includes("hang ngay") || t.includes("daily")) return "Hàng ngày";
-  if (t.includes("3") && t.includes("tuần")) return "3 lần/tuần";
-  if (t.includes("2") && t.includes("tuần")) return "2 lần/tuần";
-  if (t.includes("1") && t.includes("tuần")) return "1 lần/tuần";
-  return "Hàng ngày";
-}
-
-function clampRisk(v: any): "Thấp" | "Trung bình" | "Cao" {
-  const s = String(v ?? "").trim().toLowerCase();
-  if (s.includes("cao")) return "Cao";
-  if (s.includes("thấp") || s.includes("thap")) return "Thấp";
-  return "Trung bình";
-}
-
-function extractJson(text: string): any | null {
-  if (!text) return null;
-  const t = String(text).trim();
-  const cleaned = t.replace(/```json/gi, "").replace(/```/g, "").trim();
-  const s = cleaned.indexOf("{");
-  const e = cleaned.lastIndexOf("}");
-  if (s < 0 || e <= s) return null;
-  const slice = cleaned.slice(s, e + 1);
-  try {
-    return JSON.parse(slice);
-  } catch {
-    return null;
-  }
-}
-
-function buildInsights(student: any) {
-  const scores = Array.isArray(student?.scores) ? student.scores : [];
-  const latest = pickLatest(scores);
-  const prev = pickPrev(scores);
-
-  const latestAvg = avg3(latest);
-  const prevAvg = avg3(prev);
-
-  const dMath = delta(latest?.math ?? null, prev?.math ?? null);
-  const dLit = delta(latest?.lit ?? null, prev?.lit ?? null);
-  const dEng = delta(latest?.eng ?? null, prev?.eng ?? null);
-  const dAvg = delta(latestAvg, prevAvg);
-
-  const subjects = [
-    { key: "math", name: "TOÁN", v: latest?.math ?? null, d: dMath },
-    { key: "lit", name: "NGỮ VĂN", v: latest?.lit ?? null, d: dLit },
-    { key: "eng", name: "TIẾNG ANH", v: latest?.eng ?? null, d: dEng },
-  ].filter((x) => x.v !== null);
-
-  const weakest = subjects.length ? subjects.slice().sort((a, b) => (a.v! - b.v!))[0] : null;
-  const strongest = subjects.length ? subjects.slice().sort((a, b) => (b.v! - a.v!))[0] : null;
-
-  const risk = riskSuggest(latestAvg, dMath, dLit, dEng);
-
-  return {
-    scaleMax: SCALE_MAX,
-    latest,
-    prev,
-    latestAvg,
-    prevAvg,
-    deltas: { math: dMath, lit: dLit, eng: dEng, avg: dAvg },
-    bands: {
-      math: band15(latest?.math ?? null),
-      lit: band15(latest?.lit ?? null),
-      eng: band15(latest?.eng ?? null),
-      avg: band15(latestAvg),
-    },
-    weakestSubject: weakest ? { subject: weakest.name, score: weakest.v, delta: weakest.d } : null,
-    strongestSubject: strongest ? { subject: strongest.name, score: strongest.v, delta: strongest.d } : null,
-    suggestedRisk: risk,
-  };
-}
-
-function fallbackReport(student: any) {
-  const insights = buildInsights(student);
-  const month = insights.latest?.month || "gần đây";
-
-  const weak = insights.weakestSubject?.subject || "TOÁN";
-  const band = (insights.weakestSubject?.score ?? null) !== null ? band15(insights.weakestSubject!.score) : "MID";
-
-  const actions: ActionItem[] =
-    band === "VERY_LOW" || band === "LOW"
-      ? [
-          { description: `Mỗi ngày 15 phút củng cố nền tảng ${weak}: làm 10 câu mức cơ bản + ghi lại 3 lỗi sai`, frequency: "Hàng ngày" },
-          { description: `3 buổi/tuần: chọn 1 dạng bài ${weak} yếu nhất, làm 20 câu và tự chấm`, frequency: "3 lần/tuần" },
-          { description: `Ghi “sổ lỗi sai”: mỗi lỗi ghi 1 dòng (dạng - sai ở đâu - cách đúng)`, frequency: "Hàng ngày" },
-        ]
-      : band === "MID"
-      ? [
-          { description: `3 buổi/tuần: luyện theo chuyên đề ${weak} (20–25 phút), ưu tiên dạng hay sai`, frequency: "3 lần/tuần" },
-          { description: `Mỗi ngày 10 phút làm lại câu sai của tuần (tối đa 8 câu)`, frequency: "Hàng ngày" },
-          { description: `1 lần/tuần làm 1 đề ngắn ${weak} (15–20 câu), tổng kết 5 lỗi sai`, frequency: "1 lần/tuần" },
-        ]
-      : [
-          { description: `2 buổi/tuần làm đề tổng hợp (20–25 phút), mục tiêu tăng tốc độ và độ chính xác`, frequency: "2 lần/tuần" },
-          { description: `Mỗi ngày 8–10 phút ôn lại 1 lỗi sai trọng tâm (ghi cách tránh lặp lại)`, frequency: "Hàng ngày" },
-          { description: `1 lần/tuần tự đánh giá: chọn 1 kỹ năng cần nâng (tốc độ/độ chính xác/diễn đạt) và đặt mục tiêu tuần tới`, frequency: "1 lần/tuần" },
-        ];
-
-  return {
-    generatedAt: new Date().toISOString(),
-    overview: `Tổng quan: dữ liệu mới nhất tháng ${month} (thang ${SCALE_MAX}).`,
-    riskLevel: insights.suggestedRisk,
-    strengths: insights.strongestSubject ? [`Môn nổi bật: ${insights.strongestSubject.subject}.`] : ["Có dữ liệu theo dõi theo tháng."],
-    risks: insights.weakestSubject ? [`Cần ưu tiên cải thiện ${insights.weakestSubject.subject}.`] : ["Cần duy trì thói quen học đều."],
-    bySubject: {
-      math: { status: "Theo dõi", action: "Ôn lỗi sai 10–15 phút/ngày." },
-      lit: { status: "Theo dõi", action: "Đọc 10 phút/ngày và ghi ý chính." },
-      eng: { status: "Theo dõi", action: "Luyện từ vựng 10 phút/ngày." },
-    },
-    actions,
-    studyPlan: [
-      { day: "Thứ 2", subject: "Toán", duration: "20 phút", content: "Chuyên đề + sửa lỗi sai" },
-      { day: "Thứ 4", subject: "Văn", duration: "20 phút", content: "Đọc hiểu + dàn ý 1 đoạn" },
-      { day: "Thứ 6", subject: "Anh", duration: "20 phút", content: "Từ vựng + bài tập ngắn" },
-    ],
-    messageToStudent: "Chọn 1 việc nhỏ làm đều mỗi ngày, kết quả sẽ khác sau 2 tuần.",
-    teacherNotes: "GV có thể điều chỉnh theo tình hình lớp và thái độ học tập.",
-  };
+function normText(x: any) {
+  return String(x ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 }
 
 export async function POST(req: Request) {
   const session = await getSession();
-  if (!session || session.role !== "ADMIN") {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
+  if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-  const { student } = await req.json().catch(() => ({}));
-  if (!student?.mhs) {
-    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
-  }
+  const body = await req.json().catch(() => ({}));
+  const mhs = String(body?.mhs ?? "").trim();
+  const focusMonthRaw = String(body?.month ?? "").trim();
+  const focusMonth = isMonthKey(focusMonthRaw) ? focusMonthRaw : undefined;
 
-  const insights = buildInsights(student);
-  const apiKey = process.env.GEMINI_API_KEY;
+  if (!mhs) return NextResponse.json({ ok: false, error: "Missing mhs" }, { status: 400 });
 
-  let report: any = fallbackReport(student);
-
-  if (apiKey) {
-    try {
-      const ai = new GoogleGenAI({ apiKey });
-
-      const prompt = [
-        "Bạn là giáo viên chủ nhiệm. Hãy phân tích học sinh dựa trên điểm số theo tháng (3 môn: Toán, Ngữ văn, Tiếng Anh).",
-        `THANG ĐIỂM TỐI ĐA: ${SCALE_MAX}. Điểm có thể là số thập phân.`,
-        "Mục tiêu: nhận xét + giao nhiệm vụ (thói quen học) được cá nhân hóa hợp lý dựa trên điểm từng môn và xu hướng theo tháng.",
-        "Có thể có học sinh điểm gần nhau (chênh 1-2 điểm) thì nhiệm vụ có thể giống nhau một phần, nhưng vẫn phải hợp lý theo môn yếu và xu hướng.",
-        "",
-        "RÀNG BUỘC BẮT BUỘC:",
-        `- actions[]: 3 đến 5 nhiệm vụ, mỗi nhiệm vụ phải đo được và cụ thể (thời lượng/số câu/đầu ra).`,
-        "- Ưu tiên nhiệm vụ cho môn yếu nhất và/hoặc môn đang giảm.",
-        "- frequency chỉ dùng một trong: 'Hàng ngày', '3 lần/tuần', '2 lần/tuần', '1 lần/tuần'.",
-        "- Không phán đoán nguyên nhân chắc chắn. Chỉ nói theo dữ liệu điểm.",
-        "- Trả về JSON THUẦN (KHÔNG markdown).",
-        "",
-        "ĐỊNH HƯỚNG CÁ NHÂN HÓA (tham khảo theo thang 15):",
-        "- VERY_LOW/LOW (<7.5): ưu tiên nền tảng + thói quen ngắn hàng ngày + 3 lần/tuần luyện dạng cơ bản.",
-        "- MID (7.5-10.5): luyện chuyên đề + đề ngắn 1 lần/tuần + sửa lỗi sai.",
-        "- GOOD/EXCELLENT (>10.5): đề tổng hợp + nâng tốc độ/độ chính xác + mục tiêu nâng bậc.",
-        "",
-        "CHUẨN JSON OUTPUT (các field bắt buộc):",
-        "overview (1-2 câu), riskLevel ('Thấp'|'Trung bình'|'Cao'), strengths[] (2-3), risks[] (2-3),",
-        "bySubject { math:{status,action}, lit:{status,action}, eng:{status,action} },",
-        "actions[]: {description, frequency} (3-5),",
-        "studyPlan[]: {day, subject, duration, content} (kế hoạch 2 tuần, có thể ghi theo Thứ),",
-        "messageToStudent, teacherNotes.",
-        "",
-        "Dữ liệu tóm tắt (để quyết định cá nhân hóa):",
-        JSON.stringify(insights),
-        "",
-        "Dữ liệu học sinh (JSON gốc):",
-        JSON.stringify(student),
-      ].join("\n");
-
-      const resp = await ai.models.generateContent({
-        model: "gemini-1.5-flash",
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-      });
-
-      const parsed = extractJson((resp as any)?.text || "");
-      if (parsed) {
-        const next: any = { generatedAt: new Date().toISOString(), ...parsed };
-        next.riskLevel = clampRisk(next.riskLevel ?? insights.suggestedRisk);
-
-        const rawActions = Array.isArray(next.actions) ? next.actions : [];
-        const cleanActions: ActionItem[] = rawActions
-          .map((a: any) => {
-            if (typeof a === "string") return { description: a, frequency: "Hàng ngày" };
-            return {
-              description: String(a?.description ?? "").trim(),
-              frequency: normalizeFrequency(a?.frequency),
-            };
-          })
-          .filter((a: ActionItem) => a.description.length > 0)
-          .slice(0, 5);
-
-        if (cleanActions.length < 3) {
-          const fb = fallbackReport(student);
-          const fbActs = Array.isArray(fb.actions) ? fb.actions : [];
-          for (const a of fbActs) {
-            if (cleanActions.length >= 3) break;
-            cleanActions.push({ description: a.description, frequency: normalizeFrequency(a.frequency) });
-          }
-        }
-        next.actions = cleanActions.slice(0, 5);
-
-        report = next;
-      }
-    } catch {
-      report = fallbackReport(student);
-    }
-  }
-
-  // ✅ PERSIST: điểm tháng N -> nhiệm vụ tháng N+1
   const state = await getAppState();
-  const students = Array.isArray(state.students) ? state.students : [];
-  const idx = students.findIndex((s: any) => String(s.mhs).trim() === String(student.mhs).trim());
+  const students: Student[] = (state?.students ?? []) as any[];
+  const idx = students.findIndex((s) => String(s?.mhs || "").trim() === mhs);
+  if (idx < 0) return NextResponse.json({ ok: false, error: "Student not found" }, { status: 404 });
 
-  if (idx >= 0) {
-    const updated: any = { ...(students[idx] || {}) };
-    updated.aiReport = report;
+  const st = students[idx];
+  const scores = Array.isArray(st?.scores) ? st.scores : [];
+  const lastMonth = getLatestMonthFromScores(scores);
 
-    const scores = Array.isArray(updated.scores) ? updated.scores : [];
-    const latestScore = pickLatest(scores);
-    const latestScoreMonth = isMonthKey(latestScore?.month || "") ? String(latestScore!.month).trim() : new Date().toISOString().slice(0, 7);
-    const taskMonth = nextMonthKey(latestScoreMonth);
+  const monthToAnalyze = focusMonth ?? lastMonth;
+
+  const monthScore = scores.find((x) => String(x?.month || "").trim() === monthToAnalyze);
+  const math = monthScore?.math ?? null;
+  const lit = monthScore?.lit ?? null;
+  const eng = monthScore?.eng ?? null;
+
+  const fallbackReport = {
+    ok: true,
+    month: monthToAnalyze,
+    summary: `Nhận xét cơ bản cho ${st?.name || mhs}.`,
+    riskLevel: "TRUNG BÌNH",
+    strengths: ["Đang duy trì việc học đều đặn."],
+    weaknesses: ["Cần củng cố kiến thức nền và thói quen tự học."],
+    actions: [
+      {
+        description:
+          "Toán: làm lại và chữa 5 bài sai gần nhất trong vở/bài tập; ghi lại lỗi sai và cách sửa.",
+        frequency: "daily",
+      },
+      {
+        description:
+          "Ngữ văn: ôn lại bài đã học (tóm tắt 10 dòng + ghi 5 ý chính/khái niệm quan trọng).",
+        frequency: "weekly",
+      },
+      {
+        description:
+          "Tiếng Anh: ôn từ vựng theo sách/tài liệu trường 15 phút và viết 5 câu dùng từ mới.",
+        frequency: "daily",
+      },
+    ],
+  };
+
+  // If no Gemini key -> fallback
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return NextResponse.json(fallbackReport);
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const prompt = `
+Bạn là trợ lý giáo dục. Hãy tạo báo cáo ngắn gọn cho học sinh dựa trên điểm theo tháng.
+
+Thông tin:
+- Học sinh: ${st?.name || ""} (MHS: ${mhs}), lớp: ${st?.class || ""}
+- Tháng phân tích: ${monthToAnalyze}
+- Điểm: Toán=${math ?? "null"}, Ngữ văn=${lit ?? "null"}, Tiếng Anh=${eng ?? "null"}
+
+Yêu cầu output JSON thuần (không markdown), dạng:
+{
+  "month": "YYYY-MM",
+  "summary": "string",
+  "riskLevel": "THẤP" | "TRUNG BÌNH" | "CAO",
+  "strengths": ["..."],
+  "weaknesses": ["..."],
+  "actions": [
+    {"description":"...", "frequency":"daily|weekly|monthly"},
+    ...
+  ]
+}
+
+QUAN TRỌNG (actions):
+- Tuyệt đối KHÔNG yêu cầu “làm đề/chuyên đề” hay tài liệu bên ngoài.
+- Chỉ đưa nhiệm vụ có thể làm ngay từ nguồn sẵn có: vở ghi, bài tập trên lớp, bài kiểm tra/bài cũ, SGK, vở bài tập, tài liệu/phiếu bài tập của nhà trường.
+- Mỗi action phải cụ thể, dễ tick, thời lượng nhỏ (10–30 phút), ưu tiên “làm lại + chữa lỗi sai”.
+Ví dụ hợp lệ:
+- "Làm lại 5 bài sai gần nhất trong vở Toán và ghi lý do sai"
+- "Tự giải lại bài kiểm tra cũ (20 phút) rồi đối chiếu đáp án/ghi lỗi sai"
+- "Đọc lại bài hôm nay, viết 5 ý chính + 3 câu hỏi tự kiểm tra"
+- "Làm 10 câu bài tập trong tài liệu nhà trường theo môn"
+
+Hãy chọn 3–6 actions phù hợp với mức rủi ro.
+    `.trim();
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+
+    let report: any = null;
+    try {
+      report = JSON.parse(text);
+    } catch {
+      // If Gemini returns extra text, attempt to extract JSON
+      const start = text.indexOf("{");
+      const end = text.lastIndexOf("}");
+      if (start >= 0 && end >= 0 && end > start) {
+        try {
+          report = JSON.parse(text.slice(start, end + 1));
+        } catch {
+          report = null;
+        }
+      }
+    }
+
+    if (!report || typeof report !== "object") return NextResponse.json(fallbackReport);
+
+    // Normalize required fields
+    report.month = String(report.month || monthToAnalyze);
+    report.summary = String(report.summary || fallbackReport.summary);
+    report.riskLevel = ["THẤP", "TRUNG BÌNH", "CAO"].includes(String(report.riskLevel))
+      ? report.riskLevel
+      : fallbackReport.riskLevel;
+
+    report.strengths = Array.isArray(report.strengths) ? report.strengths.map(String) : fallbackReport.strengths;
+    report.weaknesses = Array.isArray(report.weaknesses) ? report.weaknesses.map(String) : fallbackReport.weaknesses;
+
+    if (!Array.isArray(report.actions) || report.actions.length === 0) {
+      report.actions = fallbackReport.actions;
+    } else {
+      report.actions = report.actions
+        .slice(0, 6)
+        .map((a: any) => ({
+          description: String(a?.description ?? a ?? "").trim(),
+          frequency: normalizeFrequency(a?.frequency),
+        }))
+        .filter((a: any) => a.description);
+      if (report.actions.length === 0) report.actions = fallbackReport.actions;
+    }
+
+    // Save into student.aiReport + actionsByMonth (keep ticks)
+    const updated: Student = { ...(st as any), aiReport: report };
+
+    const taskMonth = monthToAnalyze;
 
     // Ensure actionsByMonth exists
     const abm = updated.actionsByMonth && typeof updated.actionsByMonth === "object" ? updated.actionsByMonth : {};
@@ -381,7 +233,9 @@ export async function POST(req: Request) {
     const nextStudents = [...students];
     nextStudents[idx] = updated;
     await setAppState({ students: nextStudents });
-  }
 
-  return NextResponse.json(report);
+    return NextResponse.json(report);
+  } catch {
+    return NextResponse.json(fallbackReport);
+  }
 }
