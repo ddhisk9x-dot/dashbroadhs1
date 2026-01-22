@@ -272,7 +272,7 @@ function fallbackReport(student: any, taskMonth: string) {
       lit: { status: "Theo dõi", action: "Đọc 10 phút/ngày và ghi ý chính." },
       eng: { status: "Theo dõi", action: "Ôn từ vựng + làm bài ngắn trong tài liệu nội bộ." },
     },
-    actions: actions.map((a: ActionItem) => ({ ...a, description: sanitizeActionText(a.description) })),
+    actions: actions.map((a: ActionItem) => ({ ...a, description: sanitizeActionText(a.description) }))
     studyPlan: [
       { day: "Thứ 2", subject: "Toán", duration: "20 phút", content: "Làm lại bài trong tài liệu nội bộ + sửa lỗi sai" },
       { day: "Thứ 4", subject: "Văn", duration: "20 phút", content: "Đọc hiểu + dàn ý 1 đoạn" },
