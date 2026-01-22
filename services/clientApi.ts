@@ -21,7 +21,6 @@ type LoginFail = { ok: false; error?: string };
 type LoginResp = LoginOk | LoginFail;
 
 export const api = {
-  // ✅ giữ đúng hành vi cũ DashboardApp.tsx
   async login(username: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> {
     try {
       const data = await jfetch<LoginResp>("/api/login", {
@@ -40,13 +39,11 @@ export const api = {
     await jfetch<{ ok: boolean }>("/api/logout", { method: "POST" });
   },
 
-  // ✅ Admin/Teacher đều dùng được (server tự filter theo session)
   async getAllStudents(): Promise<Student[]> {
     const data = await jfetch<{ students: Student[]; meta?: any }>("/api/admin/get-students");
     return data.students || [];
   },
 
-  // ✅ Student self
   async getStudentMe(_mhs: string): Promise<Student> {
     const data = await jfetch<{ student: Student }>("/api/student/me");
     return data.student;
@@ -74,9 +71,9 @@ export const api = {
   },
 
   /**
-   * ✅ FIX tick: hỗ trợ cả 2 kiểu gọi:
+   * ✅ tick hỗ trợ cả 2 kiểu gọi:
    * - tick(actionId, date, completed)
-   * - tick(mhs, actionId, date, completed)  (legacy DashboardApp.tsx)
+   * - tick(mhs, actionId, date, completed) (legacy)
    */
   async tick(
     a0: string,
@@ -88,8 +85,8 @@ export const api = {
     let date = "";
     let completed = false;
 
-    // legacy: (mhs, actionId, date, completed)
     if (typeof a3 === "boolean") {
+      // legacy: (mhs, actionId, date, completed)
       actionId = String(a1 ?? "").trim();
       date = String(a2 ?? "").trim();
       completed = !!a3;
@@ -108,7 +105,6 @@ export const api = {
     return { success: true, student: data.student };
   },
 
-  // Used by TeacherView directly
   async generateStudentReport(student: Student): Promise<any> {
     return jfetch("/api/ai/generate-report", {
       method: "POST",
@@ -116,7 +112,6 @@ export const api = {
     });
   },
 
-  // Admin sync sheet
   async syncSheet(opts?: { mode?: "new_only" | "months"; selectedMonths?: string[] }) {
     return jfetch("/api/sync/sheets", {
       method: "POST",
@@ -125,5 +120,4 @@ export const api = {
   },
 };
 
-// Backward-compatible named export
 export const generateStudentReport = api.generateStudentReport;
