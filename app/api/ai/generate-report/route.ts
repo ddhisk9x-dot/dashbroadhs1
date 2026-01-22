@@ -1,3 +1,4 @@
+// app/api/ai/generate-report/route.ts
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getAppState, setAppState } from "@/lib/supabaseServer";
@@ -30,6 +31,20 @@ function nextMonthKey(monthKey: string): string {
   if (mo === 13) {
     mo = 1;
     y += 1;
+  }
+  return `${String(y).padStart(4, "0")}-${String(mo).padStart(2, "0")}`;
+}
+
+function prevMonthKey(monthKey: string): string {
+  const m = String(monthKey || "").trim();
+  if (!isMonthKey(m)) return new Date().toISOString().slice(0, 7);
+  const [yStr, moStr] = m.split("-");
+  let y = Number(yStr);
+  let mo = Number(moStr);
+  mo -= 1;
+  if (mo === 0) {
+    mo = 12;
+    y -= 1;
   }
   return `${String(y).padStart(4, "0")}-${String(mo).padStart(2, "0")}`;
 }
@@ -141,6 +156,15 @@ function extractJson(text: string): any | null {
   }
 }
 
+function sanitizeActionText(s: string) {
+  // chặn “đề/chuyên đề” + hướng về “tài liệu nội bộ”
+  return String(s || "")
+    .replace(/chuyên\s*đề/gi, "chủ điểm")
+    .replace(/\bđề\b/gi, "bài")
+    .replace(/làm\s*đề/gi, "làm bài")
+    .trim();
+}
+
 function buildInsights(student: any) {
   const scores = Array.isArray(student?.scores) ? student.scores : [];
   const latest = pickLatest(scores);
@@ -184,9 +208,9 @@ function buildInsights(student: any) {
   };
 }
 
-function fallbackReport(student: any) {
+function fallbackReport(student: any, taskMonth: string) {
   const insights = buildInsights(student);
-  const month = insights.latest?.month || "gần đây";
+  const scoreMonth = insights.latest?.month || "gần đây";
 
   const weak = insights.weakestSubject?.subject || "TOÁN";
   const band = (insights.weakestSubject?.score ?? null) !== null ? band15(insights.weakestSubject!.score) : "MID";
@@ -194,38 +218,65 @@ function fallbackReport(student: any) {
   const actions: ActionItem[] =
     band === "VERY_LOW" || band === "LOW"
       ? [
-          { description: `Mỗi ngày 15 phút củng cố nền tảng ${weak}: làm 10 câu mức cơ bản + ghi lại 3 lỗi sai`, frequency: "Hàng ngày" },
-          { description: `3 buổi/tuần: chọn 1 dạng bài ${weak} yếu nhất, làm 20 câu và tự chấm`, frequency: "3 lần/tuần" },
-          { description: `Ghi “sổ lỗi sai”: mỗi lỗi ghi 1 dòng (dạng - sai ở đâu - cách đúng)`, frequency: "Hàng ngày" },
+          {
+            description: `(${taskMonth}) Mỗi ngày 15 phút củng cố nền tảng ${weak}: làm lại 10 bài cơ bản trong TÀI LIỆU NỘI BỘ + ghi 3 lỗi sai vào sổ`,
+            frequency: "Hàng ngày",
+          },
+          {
+            description: `(${taskMonth}) 3 buổi/tuần: chọn 1 chủ điểm ${weak} đang yếu trong TÀI LIỆU NỘI BỘ, làm 15–20 bài và tự chấm`,
+            frequency: "3 lần/tuần",
+          },
+          {
+            description: `(${taskMonth}) Mỗi ngày: làm lại tối đa 8 câu/bài đã sai trước đó (từ vở/bài cũ) và viết 1 dòng “vì sao sai – cách đúng”`,
+            frequency: "Hàng ngày",
+          },
         ]
       : band === "MID"
       ? [
-          { description: `3 buổi/tuần: luyện theo chuyên đề ${weak} (20–25 phút), ưu tiên dạng hay sai`, frequency: "3 lần/tuần" },
-          { description: `Mỗi ngày 10 phút làm lại câu sai của tuần (tối đa 8 câu)`, frequency: "Hàng ngày" },
-          { description: `1 lần/tuần làm 1 đề ngắn ${weak} (15–20 câu), tổng kết 5 lỗi sai`, frequency: "1 lần/tuần" },
+          {
+            description: `(${taskMonth}) 3 buổi/tuần: luyện 1–2 chủ điểm ${weak} trong TÀI LIỆU NỘI BỘ (20–25 phút), ưu tiên phần hay sai`,
+            frequency: "3 lần/tuần",
+          },
+          {
+            description: `(${taskMonth}) Mỗi ngày 10 phút: làm lại câu/bài sai của tuần (tối đa 8 câu/bài) + sửa cẩn thận`,
+            frequency: "Hàng ngày",
+          },
+          {
+            description: `(${taskMonth}) 1 lần/tuần: tự kiểm tra 15–20 phút bằng bài tổng hợp trong TÀI LIỆU NỘI BỘ, tổng kết 5 lỗi sai`,
+            frequency: "1 lần/tuần",
+          },
         ]
       : [
-          { description: `2 buổi/tuần làm đề tổng hợp (20–25 phút), mục tiêu tăng tốc độ và độ chính xác`, frequency: "2 lần/tuần" },
-          { description: `Mỗi ngày 8–10 phút ôn lại 1 lỗi sai trọng tâm (ghi cách tránh lặp lại)`, frequency: "Hàng ngày" },
-          { description: `1 lần/tuần tự đánh giá: chọn 1 kỹ năng cần nâng (tốc độ/độ chính xác/diễn đạt) và đặt mục tiêu tuần tới`, frequency: "1 lần/tuần" },
+          {
+            description: `(${taskMonth}) 2 buổi/tuần: làm bài tổng hợp trong TÀI LIỆU NỘI BỘ (20–25 phút), mục tiêu tăng tốc độ & chính xác`,
+            frequency: "2 lần/tuần",
+          },
+          {
+            description: `(${taskMonth}) Mỗi ngày 8–10 phút: ôn 1 lỗi sai trọng tâm (ghi cách tránh lặp lại)`,
+            frequency: "Hàng ngày",
+          },
+          {
+            description: `(${taskMonth}) 1 lần/tuần: tự đánh giá 1 kỹ năng cần nâng (tốc độ/độ chính xác/diễn đạt) và đặt mục tiêu tuần tới`,
+            frequency: "1 lần/tuần",
+          },
         ];
 
   return {
     generatedAt: new Date().toISOString(),
-    overview: `Tổng quan: dữ liệu mới nhất tháng ${month} (thang ${SCALE_MAX}).`,
+    overview: `Tổng quan: dữ liệu điểm mới nhất tháng ${scoreMonth} (thang ${SCALE_MAX}). Nhiệm vụ áp dụng cho tháng ${taskMonth}.`,
     riskLevel: insights.suggestedRisk,
     strengths: insights.strongestSubject ? [`Môn nổi bật: ${insights.strongestSubject.subject}.`] : ["Có dữ liệu theo dõi theo tháng."],
     risks: insights.weakestSubject ? [`Cần ưu tiên cải thiện ${insights.weakestSubject.subject}.`] : ["Cần duy trì thói quen học đều."],
     bySubject: {
-      math: { status: "Theo dõi", action: "Ôn lỗi sai 10–15 phút/ngày." },
+      math: { status: "Theo dõi", action: "Ôn lỗi sai 10–15 phút/ngày bằng tài liệu nội bộ." },
       lit: { status: "Theo dõi", action: "Đọc 10 phút/ngày và ghi ý chính." },
-      eng: { status: "Theo dõi", action: "Luyện từ vựng 10 phút/ngày." },
+      eng: { status: "Theo dõi", action: "Ôn từ vựng + làm bài ngắn trong tài liệu nội bộ." },
     },
-    actions,
+    actions: actions.map((a) => ({ ...a, description: sanitizeActionText(a.description) })),
     studyPlan: [
-      { day: "Thứ 2", subject: "Toán", duration: "20 phút", content: "Chuyên đề + sửa lỗi sai" },
+      { day: "Thứ 2", subject: "Toán", duration: "20 phút", content: "Làm lại bài trong tài liệu nội bộ + sửa lỗi sai" },
       { day: "Thứ 4", subject: "Văn", duration: "20 phút", content: "Đọc hiểu + dàn ý 1 đoạn" },
-      { day: "Thứ 6", subject: "Anh", duration: "20 phút", content: "Từ vựng + bài tập ngắn" },
+      { day: "Thứ 6", subject: "Anh", duration: "20 phút", content: "Từ vựng + bài tập ngắn (tài liệu nội bộ)" },
     ],
     messageToStudent: "Chọn 1 việc nhỏ làm đều mỗi ngày, kết quả sẽ khác sau 2 tuần.",
     teacherNotes: "GV có thể điều chỉnh theo tình hình lớp và thái độ học tập.",
@@ -234,7 +285,7 @@ function fallbackReport(student: any) {
 
 export async function POST(req: Request) {
   const session = await getSession();
-  if (!session || session.role !== "ADMIN") {
+  if (!session || (session.role !== "ADMIN" && session.role !== "TEACHER")) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
@@ -243,10 +294,31 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
 
+  // Tính taskMonth = (tháng điểm mới nhất) + 1
+  const scores = Array.isArray(student?.scores) ? student.scores : [];
+  const latestScore = pickLatest(scores);
+  const latestScoreMonth = isMonthKey(latestScore?.month || "")
+    ? String(latestScore!.month).trim()
+    : new Date().toISOString().slice(0, 7);
+  const taskMonth = nextMonthKey(latestScoreMonth);
+  const prevTaskMonth = prevMonthKey(taskMonth);
+
+  // Lấy nhiệm vụ tháng trước (nếu có) để AI đổi nhiệm vụ theo tháng
+  const stateBefore = await getAppState();
+  const allBefore = Array.isArray(stateBefore.students) ? stateBefore.students : [];
+  const stBefore = allBefore.find((s: any) => String(s?.mhs || "").trim() === String(student.mhs).trim());
+  const prevMonthActions: Array<{ description?: string; frequency?: string }> =
+    stBefore?.actionsByMonth?.[prevTaskMonth] && Array.isArray(stBefore.actionsByMonth[prevTaskMonth])
+      ? stBefore.actionsByMonth[prevTaskMonth].map((a: any) => ({
+          description: a?.description,
+          frequency: a?.frequency,
+        }))
+      : [];
+
   const insights = buildInsights(student);
   const apiKey = process.env.GEMINI_API_KEY;
 
-  let report: any = fallbackReport(student);
+  let report: any = fallbackReport(student, taskMonth);
 
   if (apiKey) {
     try {
@@ -255,34 +327,44 @@ export async function POST(req: Request) {
       const prompt = [
         "Bạn là giáo viên chủ nhiệm. Hãy phân tích học sinh dựa trên điểm số theo tháng (3 môn: Toán, Ngữ văn, Tiếng Anh).",
         `THANG ĐIỂM TỐI ĐA: ${SCALE_MAX}. Điểm có thể là số thập phân.`,
-        "Mục tiêu: nhận xét + giao nhiệm vụ (thói quen học) được cá nhân hóa hợp lý dựa trên điểm từng môn và xu hướng theo tháng.",
-        "Có thể có học sinh điểm gần nhau (chênh 1-2 điểm) thì nhiệm vụ có thể giống nhau một phần, nhưng vẫn phải hợp lý theo môn yếu và xu hướng.",
+        "",
+        `THÁNG ĐIỂM MỚI NHẤT: ${latestScoreMonth}.`,
+        `THÁNG NHIỆM VỤ CẦN GIAO: ${taskMonth} (luôn là tháng sau của tháng điểm mới nhất).`,
+        "",
+        "Mục tiêu: nhận xét + giao nhiệm vụ (thói quen học) cá nhân hóa theo môn yếu và xu hướng tăng/giảm theo tháng.",
         "",
         "RÀNG BUỘC BẮT BUỘC:",
-        `- actions[]: 3 đến 5 nhiệm vụ, mỗi nhiệm vụ phải đo được và cụ thể (thời lượng/số câu/đầu ra).`,
-        "- Ưu tiên nhiệm vụ cho môn yếu nhất và/hoặc môn đang giảm.",
-        "- frequency chỉ dùng một trong: 'Hàng ngày', '3 lần/tuần', '2 lần/tuần', '1 lần/tuần'.",
+        "- actions[]: 3 đến 5 nhiệm vụ; phải đo được (thời lượng/số bài/đầu ra rõ).",
+        "- Ưu tiên môn yếu nhất và/hoặc môn đang giảm.",
+        "- frequency chỉ dùng đúng 1 trong: 'Hàng ngày', '3 lần/tuần', '2 lần/tuần', '1 lần/tuần'.",
         "- Không phán đoán nguyên nhân chắc chắn. Chỉ nói theo dữ liệu điểm.",
-        "- các nhiệm vụ thiên về làm lại bài, không làm chuyên đề ngoài, mà làm bài tập trong tài liệu nội bộ của môn tương ứng (tập trung hoàn thành toàn bộ chủ đề, làm lại).",
-        "- Trả về JSON THUẦN (KHÔNG markdown).",
         "",
-        "ĐỊNH HƯỚNG CÁ NHÂN HÓA (tham khảo theo thang 15):",
-        "- VERY_LOW/LOW (<7.5): ưu tiên nền tảng + thói quen ngắn hàng ngày + 3 lần/tuần luyện dạng cơ bản.",
-        "- MID (7.5-10.5): luyện chuyên đề + đề ngắn 1 lần/tuần + sửa lỗi sai.",
-        "- GOOD/EXCELLENT (>10.5): đề tổng hợp + nâng tốc độ/độ chính xác + mục tiêu nâng bậc.",
+        "QUY ƯỚC NHIỆM VỤ (RẤT QUAN TRỌNG):",
+        "- TUYỆT ĐỐI KHÔNG dùng các từ/ý: 'đề', 'chuyên đề', 'đề thi', 'luyện đề'.",
+        "- Thay bằng: 'bài trong TÀI LIỆU NỘI BỘ môn ...', 'làm lại bài cũ/vở/bài đã sai', 'chủ điểm trong tài liệu nội bộ'.",
+        "- Nhiệm vụ phải phù hợp việc HS có sẵn tài liệu nội bộ theo từng môn.",
+        "",
+        "ĐỔI NHIỆM VỤ THEO THÁNG:",
+        `- Đây là nhiệm vụ THÁNG TRƯỚC (${prevTaskMonth}) (nếu có). Khi tạo cho tháng ${taskMonth}, hãy thay đổi ít nhất 60% nội dung mô tả so với tháng trước,`,
+        "  trừ khi điểm số gần như không đổi (khi đó chỉ thay đổi cách làm/đầu ra, vẫn tránh y hệt).",
         "",
         "CHUẨN JSON OUTPUT (các field bắt buộc):",
         "overview (1-2 câu), riskLevel ('Thấp'|'Trung bình'|'Cao'), strengths[] (2-3), risks[] (2-3),",
         "bySubject { math:{status,action}, lit:{status,action}, eng:{status,action} },",
         "actions[]: {description, frequency} (3-5),",
-        "studyPlan[]: {day, subject, duration, content} (kế hoạch 2 tuần, có thể ghi theo Thứ),",
+        "studyPlan[]: {day, subject, duration, content} (kế hoạch 2 tuần),",
         "messageToStudent, teacherNotes.",
         "",
         "Dữ liệu tóm tắt (để quyết định cá nhân hóa):",
         JSON.stringify(insights),
         "",
+        `Nhiệm vụ tháng trước (${prevTaskMonth}) để tham chiếu (có thể rỗng):`,
+        JSON.stringify(prevMonthActions),
+        "",
         "Dữ liệu học sinh (JSON gốc):",
         JSON.stringify(student),
+        "",
+        "Trả về JSON THUẦN (KHÔNG markdown).",
       ].join("\n");
 
       const resp = await ai.models.generateContent({
@@ -304,27 +386,33 @@ export async function POST(req: Request) {
               frequency: normalizeFrequency(a?.frequency),
             };
           })
+          .map((a) => ({ ...a, description: sanitizeActionText(a.description) }))
           .filter((a: ActionItem) => a.description.length > 0)
           .slice(0, 5);
 
         if (cleanActions.length < 3) {
-          const fb = fallbackReport(student);
+          const fb = fallbackReport(student, taskMonth);
           const fbActs = Array.isArray(fb.actions) ? fb.actions : [];
           for (const a of fbActs) {
             if (cleanActions.length >= 3) break;
-            cleanActions.push({ description: a.description, frequency: normalizeFrequency(a.frequency) });
+            cleanActions.push({ description: sanitizeActionText(a.description), frequency: normalizeFrequency(a.frequency) });
           }
         }
         next.actions = cleanActions.slice(0, 5);
 
+        // ép overview có nhắc tháng nhiệm vụ (để GV/HS hiểu)
+        if (!String(next.overview || "").includes(taskMonth)) {
+          next.overview = `${String(next.overview || "").trim()} (Nhiệm vụ áp dụng cho tháng ${taskMonth}).`.trim();
+        }
+
         report = next;
       }
     } catch {
-      report = fallbackReport(student);
+      report = fallbackReport(student, taskMonth);
     }
   }
 
-  // ✅ PERSIST: điểm tháng N -> nhiệm vụ tháng N+1
+  // ✅ PERSIST: lưu actions vào actionsByMonth[taskMonth], giữ ticks cùng tháng bằng (description+frequency)
   const state = await getAppState();
   const students = Array.isArray(state.students) ? state.students : [];
   const idx = students.findIndex((s: any) => String(s.mhs).trim() === String(student.mhs).trim());
@@ -333,16 +421,9 @@ export async function POST(req: Request) {
     const updated: any = { ...(students[idx] || {}) };
     updated.aiReport = report;
 
-    const scores = Array.isArray(updated.scores) ? updated.scores : [];
-    const latestScore = pickLatest(scores);
-    const latestScoreMonth = isMonthKey(latestScore?.month || "") ? String(latestScore!.month).trim() : new Date().toISOString().slice(0, 7);
-    const taskMonth = nextMonthKey(latestScoreMonth);
-
-    // Ensure actionsByMonth exists
     const abm = updated.actionsByMonth && typeof updated.actionsByMonth === "object" ? updated.actionsByMonth : {};
     const existingMonthActions: any[] = Array.isArray(abm[taskMonth]) ? abm[taskMonth] : [];
 
-    // preserve ticks in SAME month by (description+frequency)
     const existingMap = new Map<string, any>();
     for (const a of existingMonthActions) {
       const key = `${normText(a?.description)}__${normalizeFrequency(a?.frequency)}`;
@@ -351,7 +432,7 @@ export async function POST(req: Request) {
 
     const actions: any[] = Array.isArray(report.actions) ? report.actions : [];
     const newMonthActions = actions.map((a: any, i: number) => {
-      const desc = String(a?.description ?? a ?? "").trim();
+      const desc = sanitizeActionText(String(a?.description ?? a ?? "").trim());
       const freq = normalizeFrequency(a?.frequency);
       const key = `${normText(desc)}__${freq}`;
       const old = existingMap.get(key);
@@ -376,7 +457,7 @@ export async function POST(req: Request) {
     abm[taskMonth] = newMonthActions;
     updated.actionsByMonth = abm;
 
-    // backward compat: activeActions mirror current task month
+    // backward compat: activeActions = tháng nhiệm vụ hiện hành
     updated.activeActions = newMonthActions;
 
     const nextStudents = [...students];
