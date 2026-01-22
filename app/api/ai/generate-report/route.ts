@@ -378,8 +378,6 @@ export async function POST(req: Request) {
         next.riskLevel = clampRisk(next.riskLevel ?? insights.suggestedRisk);
 
         const rawActions = Array.isArray(next.actions) ? next.actions : [];
-
-        // ✅ FIX TS (implicit any) + sanitize text
         const cleanActions: ActionItem[] = rawActions
           .map((a: any): ActionItem => {
             if (typeof a === "string") return { description: a, frequency: "Hàng ngày" };
@@ -388,7 +386,7 @@ export async function POST(req: Request) {
               frequency: normalizeFrequency(a?.frequency),
             };
           })
-          .map((a: ActionItem): ActionItem => ({ ...a, description: sanitizeActionText(a.description) }))
+          .map((a: ActionItem): ActionItem => ({ ...a, description: sanitizeActionText(a.description) })) // ✅ FIX noImplicitAny
           .filter((a: ActionItem) => a.description.length > 0)
           .slice(0, 5);
 
@@ -398,14 +396,13 @@ export async function POST(req: Request) {
           for (const a of fbActs) {
             if (cleanActions.length >= 3) break;
             cleanActions.push({
-              description: sanitizeActionText(String(a.description)),
-              frequency: normalizeFrequency((a as any).frequency),
+              description: sanitizeActionText(a.description),
+              frequency: normalizeFrequency(a.frequency),
             });
           }
         }
         next.actions = cleanActions.slice(0, 5);
 
-        // ép overview có nhắc tháng nhiệm vụ (để GV/HS hiểu)
         if (!String(next.overview || "").includes(taskMonth)) {
           next.overview = `${String(next.overview || "").trim()} (Nhiệm vụ áp dụng cho tháng ${taskMonth}).`.trim();
         }
