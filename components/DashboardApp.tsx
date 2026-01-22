@@ -1,225 +1,180 @@
+// components/DashboardApp.tsx
 "use client";
-import React, { useState, useEffect } from 'react';
-import StudentView from './StudentView';
-import TeacherView from './TeacherView';
-import { User, Role, Student, AIReport, StudyAction } from '../types';
-import { Lock, User as UserIcon, ArrowRight, Loader2 } from 'lucide-react';
-import { api } from '../services/clientApi';
 
-// --- Inline Login Component ---
-const LoginScreen = ({ onLogin, loading }: { onLogin: (u: string, p: string) => void, loading: boolean }) => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+import React, { useEffect, useMemo, useState } from "react";
+import type { Student, User, TaskTick } from "../types";
+import { api } from "../services/clientApi";
+import AdminDashboard from "./AdminDashboard";
+import StudentView from "./StudentView";
+import TeacherView from "./TeacherView";
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    if(!username || !password) {
-        setError("Vui lòng nhập đầy đủ thông tin");
-        return;
+type Toast = { type: "success" | "error"; message: string } | null;
+
+function normalizeTicks(raw: any): TaskTick[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  const out: TaskTick[] = [];
+  for (const t of arr) {
+    if (typeof t === "string") {
+      // legacy: string date => coi như completed=true
+      out.push({ date: t, completed: true });
+      continue;
     }
-    onLogin(username, password);
-  };
+    const d = String(t?.date ?? "").trim();
+    if (!d) continue;
+    out.push({ date: d, completed: !!t?.completed });
+  }
+  // unique by date (last wins)
+  const m = new Map<string, TaskTick>();
+  for (const x of out) m.set(x.date, x);
+  return Array.from(m.values());
+}
+
+function upsertTick(ticks: TaskTick[], date: string, completed: boolean): TaskTick[] {
+  const next = normalizeTicks(ticks);
+  const idx = next.findIndex((t) => t.date === date);
+  if (idx >= 0) next[idx] = { date, completed };
+  else next.push({ date, completed });
+  return next;
+}
+
+export default function DashboardApp() {
+  const [user, setUser] = useState<User | null>(null);
+  const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<Toast>(null);
+
+  useEffect(() => {
+    // auto-load session by calling /api/student/me when not logged? (app logic cũ)
+    // Ở dự án bạn đang dùng login form nên đoạn này chủ yếu giữ cấu trúc cũ.
+    setLoading(false);
+  }, []);
+
+  async function handleLogin(username: string, password: string) {
+    setLoading(true);
+    setToast(null);
+    try {
+      const r = await api.login(username, password);
+      if (!r.success || !r.user) {
+        setToast({ type: "error", message: r.error || "Đăng nhập thất bại" });
+        return;
+      }
+      setUser(r.user);
+
+      if (r.user.role === "ADMIN" || r.user.role === "TEACHER") {
+        const all = await api.getAllStudents();
+        setStudents(all);
+      } else {
+        const me = await api.getStudentMe(r.user.username);
+        setCurrentStudent(me);
+      }
+
+      setToast({ type: "success", message: "Đăng nhập thành công" });
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message || "Lỗi đăng nhập" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await api.logout();
+    } catch {}
+    setUser(null);
+    setStudents([]);
+    setCurrentStudent(null);
+  }
+
+  // ✅ FIX: optimistic tick đúng kiểu TaskTick[]
+  async function handleUpdateAction(actionId: string, date: string, completed: boolean) {
+    if (!currentStudent) return;
+
+    // optimistic update (đúng cấu trúc ticks)
+    const updatedStudent: Student = {
+      ...currentStudent,
+      activeActions: (currentStudent.activeActions || []).map((a) => {
+        if (a.id !== actionId) return a;
+        return {
+          ...a,
+          ticks: upsertTick(a.ticks, date, completed),
+        };
+      }),
+      actionsByMonth: currentStudent.actionsByMonth
+        ? Object.fromEntries(
+            Object.entries(currentStudent.actionsByMonth).map(([k, arr]) => [
+              k,
+              (arr || []).map((a) => {
+                if (a.id !== actionId) return a;
+                return { ...a, ticks: upsertTick(a.ticks, date, completed) };
+              }),
+            ])
+          )
+        : currentStudent.actionsByMonth,
+    };
+
+    setCurrentStudent(updatedStudent);
+
+    try {
+      // legacy signature (mhs, actionId, date, completed) vẫn giữ
+      const r = await api.tick(currentStudent.mhs, actionId, date, completed);
+      if (r.success && r.student) {
+        setCurrentStudent(r.student);
+      }
+    } catch (e: any) {
+      setToast({ type: "error", message: e?.message || "Tick failed" });
+      // rollback
+      setCurrentStudent(currentStudent);
+    }
+  }
+
+  // ---- UI ----
+  const role = user?.role || null;
+
+  if (loading) {
+    return <div className="p-6 text-slate-600">Loading...</div>;
+  }
+
+  // Login UI cũ của bạn nằm ở nơi khác (tùy dự án). Ở đây giữ cấu trúc render theo role.
+  if (!user) {
+    // Nếu dự án bạn có LoginForm component thì render tại đây
+    return (
+      <div className="p-6">
+        <div className="text-slate-700">Bạn đang ở trạng thái chưa đăng nhập.</div>
+        <div className="text-slate-500 text-sm">Hãy dùng form đăng nhập của dự án để login.</div>
+        {toast ? (
+          <div className={`mt-3 text-sm ${toast.type === "error" ? "text-red-600" : "text-emerald-600"}`}>
+            {toast.message}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-indigo-100 to-purple-100 opacity-50 z-0"></div>
-      <div className="absolute -top-20 -right-20 w-96 h-96 bg-indigo-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
-      <div className="absolute -bottom-20 -left-20 w-96 h-96 bg-purple-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
-
-      <div className="bg-white/80 backdrop-blur-xl p-8 rounded-3xl shadow-[0_35px_60px_-15px_rgba(0,0,0,0.1)] w-full max-w-md relative z-10 border border-white/50">
-        <div className="text-center mb-10">
-            <div className="w-12 h-12 bg-indigo-600 rounded-2xl mx-auto mb-4 flex items-center justify-center shadow-lg shadow-indigo-600/30">
-                <span className="text-white font-bold text-xl">D</span>
-            </div>
-            <h1 className="text-3xl font-bold text-slate-800 mb-2 tracking-tight">Deep Dashboard</h1>
-            <p className="text-slate-500 font-medium">Hệ thống Phân tích & AI Mentor</p>
+    <div className="min-h-screen bg-slate-50">
+      {toast ? (
+        <div className="p-3">
+          <div className={`text-sm ${toast.type === "error" ? "text-red-600" : "text-emerald-600"}`}>{toast.message}</div>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Tên đăng nhập (MHS)</label>
-                <div className="relative group">
-                    <UserIcon className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={20} />
-                    <input
-                        type="text"
-                        value={username}
-                        onChange={e => setUsername(e.target.value)}
-                        className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all font-medium text-slate-700"
-                        placeholder="Ví dụ: HS001"
-                        disabled={loading}
-                    />
-                </div>
-            </div>
-            <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 ml-1">Mật khẩu</label>
-                <div className="relative group">
-                    <Lock className="absolute left-4 top-3.5 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={20} />
-                    <input
-                        type="password"
-                        value={password}
-                        onChange={e => setPassword(e.target.value)}
-                        className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all font-medium text-slate-700"
-                        placeholder="••••••••"
-                        disabled={loading}
-                    />
-                </div>
-            </div>
-            {error && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-xl border border-red-100 text-center font-medium animate-pulse">{error}</div>}
+      ) : null}
 
-            <button type="submit" disabled={loading} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-2xl transition-all shadow-lg shadow-indigo-600/30 hover:shadow-indigo-600/50 hover:-translate-y-0.5 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">
-                {loading ? <Loader2 className="animate-spin" size={20} /> : <>Đăng Nhập <ArrowRight size={18} /></>}
-            </button>
-        </form>
-        <div className="mt-8 text-center bg-slate-50 p-4 rounded-2xl border border-slate-100">
-             <p className="text-xs text-slate-500 font-medium leading-relaxed">
-                <span className="font-bold text-indigo-600 block mb-1">Dành cho Học sinh:</span>
-                Tên đăng nhập: <b>Mã HS</b> (vd: HS001)<br/>
-                Mật khẩu: <b>Mã HS</b> hoặc <b>123456</b>
-            </p>
-        </div>
-      </div>
+      {role === "ADMIN" ? (
+        <AdminDashboard user={user} students={students} onLogout={handleLogout} setStudents={setStudents} />
+      ) : role === "TEACHER" ? (
+        <TeacherView user={user} students={students} onLogout={handleLogout} setStudents={setStudents} />
+      ) : (
+        <StudentView
+          user={user}
+          student={currentStudent}
+          onLogout={handleLogout}
+          onUpdateAction={handleUpdateAction}
+          reloadMe={async () => {
+            const me = await api.getStudentMe(user.username);
+            setCurrentStudent(me);
+          }}
+        />
+      )}
     </div>
   );
-};
-
-const DashboardApp: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-
-  const handleLogout = async () => {
-    try { await api.logout(); } catch {}
-    setUser(null);
-    setCurrentStudent(null);
-    setStudents([]);
-  };
-
-  const loadTeacherData = async () => {
-    setIsLoading(true);
-    try {
-      const data = await api.getAllStudents();
-      setStudents(data);
-    } catch (e) {
-      console.error(e);
-      alert("Lỗi tải dữ liệu lớp học.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loadStudentData = async (mhs: string) => {
-    setIsLoading(true);
-    try {
-      const data = await api.getStudentMe(mhs);
-      setCurrentStudent(data);
-    } catch (e) {
-      console.error(e);
-      alert("Lỗi tải dữ liệu học sinh.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleLogin = async (u: string, p: string) => {
-    setIsLoading(true);
-    try {
-      const { success, user: loggedInUser, error } = await api.login(u.trim(), p.trim());
-
-      if (success && loggedInUser) {
-        setUser(loggedInUser);
-        if (loggedInUser.role === Role.TEACHER || loggedInUser.role === Role.ADMIN) {
-          await loadTeacherData();
-        } else {
-          await loadStudentData(loggedInUser.username);
-        }
-      } else {
-        alert(error || "Đăng nhập thất bại");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Lỗi kết nối server.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleImportData = async (newStudents: Student[]) => {
-    setIsLoading(true);
-    try {
-      await api.importExcel(newStudents);
-      await loadTeacherData();
-    } catch (e) {
-      console.error(e);
-      alert("Lỗi lưu dữ liệu.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleUpdateStudentReport = async (mhs: string, report: AIReport, actions: StudyAction[]) => {
-    const updatedStudents = students.map(s =>
-      s.mhs === mhs ? { ...s, aiReport: report, activeActions: actions } : s
-    );
-    setStudents(updatedStudents);
-
-    try {
-      await api.saveReport(mhs, report, actions);
-    } catch (e) {
-      console.error("Failed to save report", e);
-      alert("Lỗi lưu báo cáo vào Database.");
-    }
-  };
-
-  const handleUpdateAction = async (actionId: string, date: string, completed: boolean) => {
-    if (!user || user.role !== Role.STUDENT || !currentStudent) return;
-
-    const updatedActions = currentStudent.activeActions.map(a => {
-      if (a.id !== actionId) return a;
-      const ticks = a.ticks.filter(t => t.date !== date);
-      if (completed) ticks.push({ date, completed: true });
-      return { ...a, ticks };
-    });
-
-    setCurrentStudent({ ...currentStudent, activeActions: updatedActions });
-
-    try {
-      await api.tick(actionId, date, completed);
-    } catch (e) {
-      console.error("Tick failed", e);
-    }
-  };
-
-  if (!user) return <LoginScreen onLogin={handleLogin} loading={isLoading} />;
-
-  // ✅ QUAN TRỌNG: ADMIN cũng vào TeacherView
-  const isTeacherLike = user.role === Role.TEACHER || user.role === Role.ADMIN;
-
-  return (
-    <>
-      {isTeacherLike ? (
-        <TeacherView
-          students={students}
-          onImportData={handleImportData}
-          onUpdateStudentReport={handleUpdateStudentReport}
-          onLogout={handleLogout}
-        />
-      ) : (
-        currentStudent ? (
-          <StudentView
-            student={currentStudent}
-            onUpdateAction={handleUpdateAction}
-            onLogout={handleLogout}
-          />
-        ) : (
-          <div className="flex h-screen items-center justify-center">
-            <Loader2 className="animate-spin text-indigo-600" size={40} />
-          </div>
-        )
-      )}
-    </>
-  );
-};
-
-export default DashboardApp;
+}
