@@ -124,12 +124,15 @@ export default function DashboardApp() {
     try {
       const me = await fetch("/api/me", { credentials: "include" }).then((r) => r.json());
       if (me?.ok && me?.session) {
-        const u: User = {
-          username: String(me.session.username || "admin"),
-          name: me.session.name || "User",
-          role: me.session.role,
-          teacherClass: me.session.teacherClass,
-        };
+       const u: User = {
+  username: String(me.session.username || "admin"),
+  name: me.session.name || "User",
+  role: me.session.role,
+};
+
+// (optional) nếu bạn vẫn muốn giữ teacherClass để dùng đâu đó
+// thì gắn kiểu any để không vỡ type:
+(u as any).teacherClass = me.session.teacherClass;
         setUser(u);
 
         if (u.role === "STUDENT") {
