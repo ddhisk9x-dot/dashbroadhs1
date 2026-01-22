@@ -2,12 +2,33 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import type { Student, User, StudyAction, AIReport } from "../types";
+import type { Student, User, StudyAction } from "../types";
 import { api } from "../services/clientApi";
 import StudentView from "./StudentView";
 import TeacherView from "./TeacherView";
 
 type Toast = { type: "success" | "error" | "info"; message: string };
+
+type TickLike = { date: string } | string;
+
+function tickHasDate(ticks: TickLike[], date: string) {
+  const d = String(date || "").trim();
+  return ticks.some((t) => (typeof t === "string" ? t === d : String(t?.date || "").trim() === d));
+}
+
+function tickToggle(ticks: TickLike[], date: string, completed: boolean): TickLike[] {
+  const d = String(date || "").trim();
+  const has = tickHasDate(ticks, d);
+
+  if (completed) {
+    if (has) return ticks;
+    // ✅ chuẩn TaskTick thường là object {date}
+    return [...ticks, { date: d }];
+  }
+
+  if (!has) return ticks;
+  return ticks.filter((t) => (typeof t === "string" ? t !== d : String(t?.date || "").trim() !== d));
+}
 
 export default function DashboardApp() {
   const [user, setUser] = useState<User | null>(null);
@@ -86,23 +107,21 @@ export default function DashboardApp() {
       const toggleInList = (arr: StudyAction[]) =>
         arr.map((a) => {
           if (a.id !== actionId) return a;
-          const ticks = Array.isArray(a.ticks) ? [...a.ticks] : [];
-          const has = ticks.includes(date);
-          const wantOn = completed;
 
-          if (wantOn && !has) ticks.push(date);
-          if (!wantOn && has) return { ...a, ticks: ticks.filter((d) => d !== date) };
-          return { ...a, ticks };
+          const raw = Array.isArray((a as any).ticks) ? ([...(a as any).ticks] as TickLike[]) : ([] as TickLike[]);
+          const ticks = tickToggle(raw, date, completed);
+
+          return { ...(a as any), ticks } as any;
         });
 
-      if (Array.isArray(next.activeActions)) next.activeActions = toggleInList(next.activeActions);
+      if (Array.isArray((next as any).activeActions)) (next as any).activeActions = toggleInList((next as any).activeActions);
 
-      if (next.actionsByMonth && typeof next.actionsByMonth === "object") {
-        const abm: Record<string, StudyAction[]> = { ...next.actionsByMonth };
+      if ((next as any).actionsByMonth && typeof (next as any).actionsByMonth === "object") {
+        const abm: Record<string, StudyAction[]> = { ...(next as any).actionsByMonth };
         for (const k of Object.keys(abm)) {
           if (Array.isArray(abm[k])) abm[k] = toggleInList(abm[k]);
         }
-        next.actionsByMonth = abm;
+        (next as any).actionsByMonth = abm as any;
       }
 
       return next;
