@@ -185,7 +185,7 @@ const DashboardApp: React.FC = () => {
     setCurrentStudent({ ...currentStudent, activeActions: updatedActions });
 
     try {
-      await api.tick(user.username, actionId, date, completed);
+      await api.tick(actionId, date, completed);
     } catch (e) {
       console.error("Tick failed", e);
     }
