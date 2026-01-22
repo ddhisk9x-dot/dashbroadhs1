@@ -226,22 +226,21 @@ export default function DashboardApp() {
     
       // components/DashboardApp.tsx  (chỉ cần sửa đoạn render STUDENT ở cuối file)
 ...
-      {loading ? (
-        <div className="p-6 text-slate-600">Đang tải...</div>
-      ) : view === "STUDENT" ? (
-        studentMe ? (
-          <StudentView
-            user={user}
-            student={studentMe}
-            onLogout={onLogout}
-            onUpdateAction={handleUpdateAction}
-          />
-        ) : (
-          <div className="p-6 text-slate-600">Không tìm thấy dữ liệu học sinh.</div>
-        )
-      ) : (
-        <TeacherView user={user} students={students} setStudents={setStudents} onLogout={onLogout} />
-      )}
+     {loading ? (
+  <div className="p-6 text-slate-600">Đang tải...</div>
+) : view === "STUDENT" ? (
+  studentMe ? (
+    <StudentView
+      student={studentMe}
+      onLogout={onLogout}
+      onUpdateAction={handleUpdateAction}
+    />
+  ) : (
+    <div className="p-6 text-slate-600">Không tìm thấy dữ liệu học sinh.</div>
+  )
+) : (
+  <TeacherView user={user} students={students} setStudents={setStudents} onLogout={onLogout} />
+)}
     </div>
   );
 }
