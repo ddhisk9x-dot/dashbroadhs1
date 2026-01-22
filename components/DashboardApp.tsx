@@ -1,246 +1,254 @@
-// components/DashboardApp.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import type { Student, User, StudyAction } from "../types";
+import type { Student, StudyAction, TaskTick, User } from "../types";
 import { api } from "../services/clientApi";
 import StudentView from "./StudentView";
 import TeacherView from "./TeacherView";
 
-type Toast = { type: "success" | "error" | "info"; message: string };
+function LoginScreen({ onLogin }: { onLogin: (u: string, p: string) => Promise<void> }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-type TickLike = { date: string } | string;
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setLoading(true);
+    try {
+      await onLogin(username, password);
+    } catch (e: any) {
+      setErr(e?.message || "Đăng nhập thất bại");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-function tickHasDate(ticks: TickLike[], date: string) {
-  const d = String(date || "").trim();
-  return ticks.some((t) => (typeof t === "string" ? t === d : String(t?.date || "").trim() === d));
+  return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow p-6">
+        <div className="text-xl font-bold text-slate-800">Đăng nhập</div>
+        <div className="text-sm text-slate-500 mt-1">Admin / Giáo viên / Học sinh</div>
+
+        <form onSubmit={submit} className="mt-6 space-y-3">
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-1">Tài khoản</div>
+            <input
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-200"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="admin / gv... / MHS"
+              autoComplete="username"
+            />
+          </div>
+
+          <div>
+            <div className="text-sm font-medium text-slate-700 mb-1">Mật khẩu</div>
+            <input
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-200"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              type="password"
+              autoComplete="current-password"
+            />
+          </div>
+
+          {err ? <div className="text-sm text-red-600">{err}</div> : null}
+
+          <button
+            disabled={loading}
+            className="w-full rounded-xl bg-slate-900 text-white py-2 font-semibold hover:bg-slate-800 disabled:opacity-60"
+            type="submit"
+          >
+            {loading ? "Đang đăng nhập..." : "Đăng nhập"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
 }
 
-function tickToggle(ticks: TickLike[], date: string, completed: boolean): TickLike[] {
-  const d = String(date || "").trim();
-  const has = tickHasDate(ticks, d);
+function upsertTick(ticks: TaskTick[] | undefined, date: string, completed: boolean): TaskTick[] {
+  const arr = Array.isArray(ticks) ? [...ticks] : [];
+  const filtered = arr.filter((t) => String(t?.date || "") !== date);
+  if (completed) filtered.push({ date, completed: true });
+  return filtered;
+}
 
-  if (completed) {
-    if (has) return ticks;
-    // ✅ chuẩn TaskTick thường là object {date}
-    return [...ticks, { date: d }];
+function patchStudentTickEverywhere(st: Student, actionId: string, date: string, completed: boolean): Student {
+  const patchActions = (actions: StudyAction[] | undefined): StudyAction[] => {
+    const src = Array.isArray(actions) ? actions : [];
+    return src.map((a) => {
+      if (!a || a.id !== actionId) return a;
+      return { ...a, ticks: upsertTick(a.ticks, date, completed) };
+    });
+  };
+
+  const next: Student = { ...st };
+
+  // update activeActions (backward compat)
+  next.activeActions = patchActions(next.activeActions);
+
+  // ✅ update actionsByMonth (tháng đang xem)
+  if (next.actionsByMonth && typeof next.actionsByMonth === "object") {
+    const abm: Record<string, StudyAction[]> = { ...(next.actionsByMonth as any) };
+    for (const k of Object.keys(abm)) {
+      abm[k] = patchActions(abm[k]);
+    }
+    next.actionsByMonth = abm;
   }
 
-  if (!has) return ticks;
-  return ticks.filter((t) => (typeof t === "string" ? t !== d : String(t?.date || "").trim() !== d));
+  return next;
 }
 
 export default function DashboardApp() {
   const [user, setUser] = useState<User | null>(null);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [studentMe, setStudentMe] = useState<Student | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [toast, setToast] = useState<Toast | null>(null);
+  // Admin/Teacher data
+  const [students, setStudents] = useState<Student[]>([]);
 
-  const [loginUsername, setLoginUsername] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loginLoading, setLoginLoading] = useState(false);
+  // Student data
+  const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
 
-  useEffect(() => {
-    const t = toast ? setTimeout(() => setToast(null), 2500) : undefined;
-    return () => {
-      if (t) clearTimeout(t);
-    };
-  }, [toast]);
+  const view = useMemo(() => {
+    if (!user) return "LOGIN";
+    if (user.role === "STUDENT") return "STUDENT";
+    return "TEACHER";
+  }, [user]);
 
-  async function loadAfterLogin(u: User) {
+  async function loadMeAndData() {
     setLoading(true);
     try {
-      if (u.role === "ADMIN" || u.role === "TEACHER") {
-        const list = await api.getAllStudents();
-        setStudents(list || []);
-      } else if (u.role === "STUDENT") {
-        const st = await api.getStudentMe(u.username);
-        setStudentMe(st);
+      const me = await fetch("/api/me", { credentials: "include" }).then((r) => r.json());
+      if (me?.ok && me?.session) {
+        const u: User = {
+          username: String(me.session.username || "admin"),
+          name: me.session.name || "User",
+          role: me.session.role,
+          teacherClass: me.session.teacherClass,
+        };
+        setUser(u);
+
+        if (u.role === "STUDENT") {
+          const data = await api.getStudentMe(u.username);
+          setCurrentStudent(data);
+        } else {
+          const list = await api.getAllStudents();
+          setStudents(list);
+        }
+      } else {
+        setUser(null);
+        setStudents([]);
+        setCurrentStudent(null);
       }
+    } catch {
+      setUser(null);
+      setStudents([]);
+      setCurrentStudent(null);
     } finally {
       setLoading(false);
     }
   }
 
-  const handleLogin = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    setLoginLoading(true);
-    try {
-      const res = await api.login(loginUsername, loginPassword);
-      if (!res.success || !res.user) {
-        setToast({ type: "error", message: res.error || "Đăng nhập thất bại" });
-        return;
-      }
-      setUser(res.user);
-      setToast({ type: "success", message: "Đăng nhập thành công" });
-      await loadAfterLogin(res.user);
-    } finally {
-      setLoginLoading(false);
+  useEffect(() => {
+    loadMeAndData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleLogin = async (username: string, password: string) => {
+    const res = await api.login(username, password);
+    if (!res.success || !res.user) {
+      throw new Error(res.error || "Đăng nhập thất bại");
+    }
+    setUser(res.user);
+
+    if (res.user.role === "STUDENT") {
+      const data = await api.getStudentMe(res.user.username);
+      setCurrentStudent(data);
+    } else {
+      const list = await api.getAllStudents();
+      setStudents(list);
     }
   };
 
   const onLogout = async () => {
     try {
       await api.logout();
-    } catch {
-      // ignore
     } finally {
       setUser(null);
       setStudents([]);
-      setStudentMe(null);
-      setLoginUsername("");
-      setLoginPassword("");
-      setToast({ type: "info", message: "Đã đăng xuất" });
+      setCurrentStudent(null);
     }
   };
 
+  const onImportData = async (newStudents: Student[]) => {
+    await api.importExcel(newStudents);
+    const list = await api.getAllStudents();
+    setStudents(list);
+  };
+
+  const onUpdateStudentReport = async (mhs: string, report: any, actions: StudyAction[], monthKey?: string) => {
+    // Persist for admin flow (teacher route already persists separately)
+    await api.saveReport(mhs, report, actions, monthKey);
+
+    // Update local list (admin/teacher view)
+    setStudents((prev) =>
+      prev.map((s) => {
+        if (String(s.mhs).trim() !== String(mhs).trim()) return s;
+        return { ...s, aiReport: report, activeActions: actions };
+      })
+    );
+  };
+
+  // ✅ FIX: tick phải cập nhật cả actionsByMonth + activeActions (hoặc lấy student mới từ server)
   const handleUpdateAction = async (actionId: string, date: string, completed: boolean) => {
-    if (!studentMe || !user) return;
+    if (!user || user.role !== "STUDENT") return;
+    if (!currentStudent) return;
 
-    // optimistic
-    setStudentMe((prev) => {
-      if (!prev) return prev;
-      const next: Student = { ...prev };
-
-      const toggleInList = (arr: StudyAction[]) =>
-        arr.map((a) => {
-          if (a.id !== actionId) return a;
-
-          const raw = Array.isArray((a as any).ticks) ? ([...(a as any).ticks] as TickLike[]) : ([] as TickLike[]);
-          const ticks = tickToggle(raw, date, completed);
-
-          return { ...(a as any), ticks } as any;
-        });
-
-      if (Array.isArray((next as any).activeActions)) (next as any).activeActions = toggleInList((next as any).activeActions);
-
-      if ((next as any).actionsByMonth && typeof (next as any).actionsByMonth === "object") {
-        const abm: Record<string, StudyAction[]> = { ...(next as any).actionsByMonth };
-        for (const k of Object.keys(abm)) {
-          if (Array.isArray(abm[k])) abm[k] = toggleInList(abm[k]);
-        }
-        (next as any).actionsByMonth = abm as any;
-      }
-
-      return next;
-    });
+    // optimistic update (để UI đổi ngay)
+    setCurrentStudent((prev) => (prev ? patchStudentTickEverywhere(prev, actionId, date, completed) : prev));
 
     try {
-      const data = await api.tick(user.username, actionId, date, completed); // legacy signature OK
-      if (data.student) setStudentMe(data.student);
-    } catch (e: any) {
-      setToast({ type: "error", message: e?.message || "Tick lỗi" });
-      try {
-        const st = await api.getStudentMe(user.username);
-        setStudentMe(st);
-      } catch {
-        // ignore
+      const resp = await api.tick(user.username, actionId, date, completed);
+      if (resp?.student) {
+        setCurrentStudent(resp.student);
+      } else {
+        // fallback refetch
+        const fresh = await api.getStudentMe(user.username);
+        setCurrentStudent(fresh);
       }
+    } catch {
+      // rollback bằng refetch
+      const fresh = await api.getStudentMe(user.username);
+      setCurrentStudent(fresh);
     }
   };
 
-  const view = useMemo(() => {
-    if (!user) return "AUTH";
-    if (user.role === "STUDENT") return "STUDENT";
-    return "TEACHER";
-  }, [user]);
+  if (loading) {
+    return <div className="p-6 text-slate-600">Đang tải...</div>;
+  }
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <div className="text-2xl font-bold text-slate-900 mb-1">Quản lý Học tập</div>
-          <div className="text-sm text-slate-500 mb-6">Đăng nhập để tiếp tục</div>
+  if (view === "LOGIN") {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
 
-          <form onSubmit={handleLogin} className="space-y-3">
-            <div>
-              <label className="text-sm font-medium text-slate-700">Tài khoản</label>
-              <input
-                value={loginUsername}
-                onChange={(e) => setLoginUsername(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300"
-                placeholder="admin / MHS / GV..."
-                autoComplete="username"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-slate-700">Mật khẩu</label>
-              <input
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:ring-2 focus:ring-slate-300"
-                placeholder="••••••••"
-                type="password"
-                autoComplete="current-password"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loginLoading}
-              className="w-full rounded-xl bg-slate-900 text-white py-2 font-semibold hover:bg-slate-800 disabled:opacity-60"
-            >
-              {loginLoading ? "Đang đăng nhập..." : "Đăng nhập"}
-            </button>
-          </form>
-
-          {toast && (
-            <div
-              className={`mt-4 text-sm rounded-xl px-3 py-2 ${
-                toast.type === "success"
-                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                  : toast.type === "error"
-                  ? "bg-rose-50 text-rose-700 border border-rose-200"
-                  : "bg-slate-50 text-slate-700 border border-slate-200"
-              }`}
-            >
-              {toast.message}
-            </div>
-          )}
-        </div>
-      </div>
+  if (view === "STUDENT") {
+    return currentStudent ? (
+      <StudentView student={currentStudent} onLogout={onLogout} onUpdateAction={handleUpdateAction} />
+    ) : (
+      <div className="p-6 text-slate-600">Đang tải dữ liệu học sinh...</div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {toast && (
-        <div className="fixed top-4 right-4 z-50">
-          <div
-            className={`text-sm rounded-xl px-3 py-2 shadow border ${
-              toast.type === "success"
-                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                : toast.type === "error"
-                ? "bg-rose-50 text-rose-700 border-rose-200"
-                : "bg-white text-slate-700 border-slate-200"
-            }`}
-          >
-            {toast.message}
-          </div>
-        </div>
-      )}
-
-    
-      // components/DashboardApp.tsx  (chỉ cần sửa đoạn render STUDENT ở cuối file)
-...
-     {loading ? (
-  <div className="p-6 text-slate-600">Đang tải...</div>
-) : view === "STUDENT" ? (
-  studentMe ? (
-    <StudentView
-      student={studentMe}
+    <TeacherView
+      students={students}
+      onImportData={onImportData}
+      onUpdateStudentReport={onUpdateStudentReport}
       onLogout={onLogout}
-      onUpdateAction={handleUpdateAction}
     />
-  ) : (
-    <div className="p-6 text-slate-600">Không tìm thấy dữ liệu học sinh.</div>
-  )
-) : (
-  <TeacherView students={students} setStudents={setStudents} onLogout={onLogout} />
-)}
-    </div>
   );
 }
