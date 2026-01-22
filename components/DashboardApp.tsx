@@ -1,180 +1,172 @@
 // components/DashboardApp.tsx
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import type { Student, User, TaskTick } from "../types";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import type { Student, AIReport, StudyAction, User } from "../types";
 import { api } from "../services/clientApi";
-import AdminDashboard from "./AdminDashboard";
-import StudentView from "./StudentView";
-import TeacherView from "./TeacherView";
-
-type Toast = { type: "success" | "error"; message: string } | null;
-
-function normalizeTicks(raw: any): TaskTick[] {
-  const arr = Array.isArray(raw) ? raw : [];
-  const out: TaskTick[] = [];
-  for (const t of arr) {
-    if (typeof t === "string") {
-      // legacy: string date => coi như completed=true
-      out.push({ date: t, completed: true });
-      continue;
-    }
-    const d = String(t?.date ?? "").trim();
-    if (!d) continue;
-    out.push({ date: d, completed: !!t?.completed });
-  }
-  // unique by date (last wins)
-  const m = new Map<string, TaskTick>();
-  for (const x of out) m.set(x.date, x);
-  return Array.from(m.values());
-}
-
-function upsertTick(ticks: TaskTick[], date: string, completed: boolean): TaskTick[] {
-  const next = normalizeTicks(ticks);
-  const idx = next.findIndex((t) => t.date === date);
-  if (idx >= 0) next[idx] = { date, completed };
-  else next.push({ date, completed });
-  return next;
-}
+import { AuthScreen } from "./AuthScreen";
+import { AdminView } from "./AdminView";
+import { TeacherView } from "./TeacherView";
+import { StudentView } from "./StudentView";
 
 export default function DashboardApp() {
   const [user, setUser] = useState<User | null>(null);
-  const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
   const [students, setStudents] = useState<Student[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState<Toast>(null);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    // auto-load session by calling /api/student/me when not logged? (app logic cũ)
-    // Ở dự án bạn đang dùng login form nên đoạn này chủ yếu giữ cấu trúc cũ.
-    setLoading(false);
-  }, []);
-
-  async function handleLogin(username: string, password: string) {
+  const refreshStudents = useCallback(async () => {
     setLoading(true);
-    setToast(null);
     try {
-      const r = await api.login(username, password);
-      if (!r.success || !r.user) {
-        setToast({ type: "error", message: r.error || "Đăng nhập thất bại" });
-        return;
-      }
-      setUser(r.user);
-
-      if (r.user.role === "ADMIN" || r.user.role === "TEACHER") {
-        const all = await api.getAllStudents();
-        setStudents(all);
-      } else {
-        const me = await api.getStudentMe(r.user.username);
-        setCurrentStudent(me);
-      }
-
-      setToast({ type: "success", message: "Đăng nhập thành công" });
+      const list = await api.getAllStudents();
+      setStudents(list);
+      setError(null);
     } catch (e: any) {
-      setToast({ type: "error", message: e?.message || "Lỗi đăng nhập" });
+      setError(e?.message || "Lỗi tải dữ liệu");
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  async function handleLogout() {
+  useEffect(() => {
+    if (user?.role === "ADMIN" || user?.role === "TEACHER") refreshStudents();
+  }, [user, refreshStudents]);
+
+  const onLogin = useCallback(async (username: string, password: string) => {
+    setError(null);
+    const res = await api.login(username, password);
+    if (!res.success || !res.user) {
+      setError(res.error || "Đăng nhập thất bại");
+      return;
+    }
+    setUser(res.user);
+  }, []);
+
+  const onLogout = useCallback(async () => {
     try {
       await api.logout();
     } catch {}
     setUser(null);
     setStudents([]);
-    setCurrentStudent(null);
-  }
+  }, []);
 
-  // ✅ FIX: optimistic tick đúng kiểu TaskTick[]
-  async function handleUpdateAction(actionId: string, date: string, completed: boolean) {
-    if (!currentStudent) return;
-
-    // optimistic update (đúng cấu trúc ticks)
-    const updatedStudent: Student = {
-      ...currentStudent,
-      activeActions: (currentStudent.activeActions || []).map((a) => {
-        if (a.id !== actionId) return a;
-        return {
-          ...a,
-          ticks: upsertTick(a.ticks, date, completed),
-        };
-      }),
-      actionsByMonth: currentStudent.actionsByMonth
-        ? Object.fromEntries(
-            Object.entries(currentStudent.actionsByMonth).map(([k, arr]) => [
-              k,
-              (arr || []).map((a) => {
-                if (a.id !== actionId) return a;
-                return { ...a, ticks: upsertTick(a.ticks, date, completed) };
-              }),
-            ])
-          )
-        : currentStudent.actionsByMonth,
-    };
-
-    setCurrentStudent(updatedStudent);
-
+  const onImportExcel = useCallback(async (newStudents: Student[]) => {
+    setLoading(true);
     try {
-      // legacy signature (mhs, actionId, date, completed) vẫn giữ
-      const r = await api.tick(currentStudent.mhs, actionId, date, completed);
-      if (r.success && r.student) {
-        setCurrentStudent(r.student);
-      }
+      await api.importExcel(newStudents);
+      await refreshStudents();
     } catch (e: any) {
-      setToast({ type: "error", message: e?.message || "Tick failed" });
-      // rollback
-      setCurrentStudent(currentStudent);
+      setError(e?.message || "Lỗi import");
+    } finally {
+      setLoading(false);
     }
-  }
+  }, [refreshStudents]);
 
-  // ---- UI ----
-  const role = user?.role || null;
+  const onSaveReport = useCallback(
+    async (mhs: string, report: AIReport, actions: StudyAction[], monthKey?: string) => {
+      setLoading(true);
+      try {
+        await api.saveReport(mhs, report, actions, monthKey);
+        await refreshStudents();
+      } catch (e: any) {
+        setError(e?.message || "Lỗi lưu báo cáo");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [refreshStudents]
+  );
 
-  if (loading) {
-    return <div className="p-6 text-slate-600">Loading...</div>;
-  }
+  const onSyncSheet = useCallback(async (opts?: { mode?: "new_only" | "months"; selectedMonths?: string[] }) => {
+    setLoading(true);
+    try {
+      await api.syncSheet(opts);
+      await refreshStudents();
+    } catch (e: any) {
+      setError(e?.message || "Lỗi đồng bộ sheet");
+    } finally {
+      setLoading(false);
+    }
+  }, [refreshStudents]);
 
-  // Login UI cũ của bạn nằm ở nơi khác (tùy dự án). Ở đây giữ cấu trúc render theo role.
-  if (!user) {
-    // Nếu dự án bạn có LoginForm component thì render tại đây
+  const onGenerateReport = useCallback(async (student: Student) => {
+    setLoading(true);
+    try {
+      const report = await api.generateStudentReport(student);
+      setError(null);
+      return report;
+    } catch (e: any) {
+      setError(e?.message || "Lỗi AI");
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const onTick = useCallback(
+    async (actionId: string, date: string, completed: boolean) => {
+      if (!user) return;
+      try {
+        // ✅ legacy call giữ nguyên: (mhs, actionId, date, completed)
+        await api.tick(user.username, actionId, date, completed);
+        // refresh student view data
+      } catch (e: any) {
+        setError(e?.message || "Lỗi tick");
+      }
+    },
+    [user]
+  );
+
+  const meStudent = useMemo(() => {
+    if (!user || user.role !== "STUDENT") return null;
+    return students.find((s) => String(s.mhs) === String(user.username)) || null;
+  }, [user, students]);
+
+  if (!user) return <AuthScreen onLogin={onLogin} error={error} />;
+
+  if (user.role === "ADMIN") {
     return (
-      <div className="p-6">
-        <div className="text-slate-700">Bạn đang ở trạng thái chưa đăng nhập.</div>
-        <div className="text-slate-500 text-sm">Hãy dùng form đăng nhập của dự án để login.</div>
-        {toast ? (
-          <div className={`mt-3 text-sm ${toast.type === "error" ? "text-red-600" : "text-emerald-600"}`}>
-            {toast.message}
-          </div>
-        ) : null}
-      </div>
+      <AdminView
+        user={user}
+        students={students}
+        loading={loading}
+        error={error}
+        onLogout={onLogout}
+        onImportExcel={onImportExcel}
+        onSaveReport={onSaveReport}
+        onGenerateReport={onGenerateReport}
+        onSyncSheet={onSyncSheet}
+        onRefresh={refreshStudents}
+      />
     );
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50">
-      {toast ? (
-        <div className="p-3">
-          <div className={`text-sm ${toast.type === "error" ? "text-red-600" : "text-emerald-600"}`}>{toast.message}</div>
-        </div>
-      ) : null}
+  if (user.role === "TEACHER") {
+    return (
+      <TeacherView
+        user={user}
+        students={students}
+        loading={loading}
+        error={error}
+        onLogout={onLogout}
+        onGenerateReport={onGenerateReport}
+        onSaveReport={onSaveReport}
+        onSyncSheet={onSyncSheet}
+        onRefresh={refreshStudents}
+      />
+    );
+  }
 
-      {role === "ADMIN" ? (
-        <AdminDashboard user={user} students={students} onLogout={handleLogout} setStudents={setStudents} />
-      ) : role === "TEACHER" ? (
-        <TeacherView user={user} students={students} onLogout={handleLogout} setStudents={setStudents} />
-      ) : (
-        <StudentView
-          user={user}
-          student={currentStudent}
-          onLogout={handleLogout}
-          onUpdateAction={handleUpdateAction}
-          reloadMe={async () => {
-            const me = await api.getStudentMe(user.username);
-            setCurrentStudent(me);
-          }}
-        />
-      )}
-    </div>
+  // STUDENT
+  return (
+    <StudentView
+      user={user}
+      student={meStudent}
+      loading={loading}
+      error={error}
+      onLogout={onLogout}
+      onTick={onTick}
+    />
   );
 }
