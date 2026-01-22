@@ -73,15 +73,20 @@ export const api = {
   /**
    * ✅ FIX tick: hỗ trợ cả 2 kiểu gọi:
    * - tick(actionId, date, completed)
-   * - tick(mhs, actionId, date, completed)  (legacy DashboardApp.tsx)
+   * - tick(mhs, actionId, date, completed)  (legacy)
    */
-  async tick(a0: string, a1: string, a2: boolean | string, a3?: boolean): Promise<{ success: boolean; student?: Student; error?: string }> {
+  async tick(
+    a0: string,
+    a1: string,
+    a2: boolean | string,
+    a3?: boolean
+  ): Promise<{ success: boolean; student?: Student; error?: string }> {
     let actionId = "";
     let date = "";
     let completed = false;
 
-    // legacy: (mhs, actionId, date, completed)
     if (typeof a3 === "boolean") {
+      // legacy: (mhs, actionId, date, completed)
       actionId = String(a1 ?? "").trim();
       date = String(a2 ?? "").trim();
       completed = !!a3;
@@ -115,5 +120,4 @@ export const api = {
   },
 };
 
-// Backward-compatible named export
 export const generateStudentReport = api.generateStudentReport;
