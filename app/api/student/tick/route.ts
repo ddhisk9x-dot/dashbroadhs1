@@ -1,97 +1,82 @@
+// app/api/student/tick/route.ts
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getAppState, setAppState } from "@/lib/supabaseServer";
+import type { TaskTick } from "@/types";
 
 export const runtime = "nodejs";
 
-function isMonthKey(m: string) {
-  return /^\d{4}-\d{2}$/.test(String(m || "").trim());
-}
+function normalizeTicks(raw: any): TaskTick[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  const out: TaskTick[] = [];
 
-function findActionInActionsByMonth(student: any, actionId: string): { monthKey: string; idx: number } | null {
-  const abm = student?.actionsByMonth;
-  if (!abm || typeof abm !== "object") return null;
-
-  for (const mk of Object.keys(abm)) {
-    if (!isMonthKey(mk)) continue;
-    const list = abm[mk];
-    if (!Array.isArray(list)) continue;
-    const idx = list.findIndex((a: any) => String(a?.id) === String(actionId));
-    if (idx >= 0) return { monthKey: mk, idx };
+  for (const t of arr) {
+    if (typeof t === "string") {
+      out.push({ date: t, completed: true });
+      continue;
+    }
+    const d = String(t?.date ?? "").trim();
+    if (!d) continue;
+    out.push({ date: d, completed: !!t?.completed });
   }
-  return null;
+
+  // unique by date (last wins)
+  const m = new Map<string, TaskTick>();
+  for (const x of out) m.set(x.date, x);
+  return Array.from(m.values());
 }
 
 export async function POST(req: Request) {
   const session = await getSession();
   if (!session || session.role !== "STUDENT" || !session.mhs) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
   const { actionId, date, completed } = await req.json().catch(() => ({}));
-  if (!actionId || !date || typeof completed !== "boolean") {
-    return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+  const actionIdStr = String(actionId || "").trim();
+  const dateStr = String(date || "").trim();
+  const completedBool = !!completed;
+
+  if (!actionIdStr || !dateStr) {
+    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
 
   const state = await getAppState();
-  const mhs = String(session.mhs).trim();
-  const idx = (state.students || []).findIndex((s: any) => String(s.mhs).trim() === mhs);
-  if (idx < 0) return NextResponse.json({ error: "Student not found" }, { status: 404 });
+  const students = Array.isArray(state.students) ? state.students : [];
+  const idx = students.findIndex((s: any) => String(s?.mhs || "").trim() === String(session.mhs).trim());
 
-  const student: any = { ...(state.students[idx] || {}) };
-
-  // 1) Prefer actionsByMonth (new)
-  const hit = findActionInActionsByMonth(student, actionId);
-
-  if (hit) {
-    const mk = hit.monthKey;
-    const list = Array.isArray(student.actionsByMonth?.[mk]) ? [...student.actionsByMonth[mk]] : [];
-    const action = { ...(list[hit.idx] || {}) };
-
-    const ticks = Array.isArray(action.ticks) ? [...action.ticks] : [];
-    const tIdx = ticks.findIndex((t: any) => String(t.date) === String(date));
-    if (tIdx >= 0) ticks[tIdx] = { ...ticks[tIdx], completed };
-    else ticks.push({ date, completed });
-
-    action.ticks = ticks;
-    list[hit.idx] = action;
-
-    student.actionsByMonth = { ...(student.actionsByMonth || {}) };
-    student.actionsByMonth[mk] = list;
-
-    // optional: keep backward compat mirror if action exists in activeActions
-    const aa = Array.isArray(student.activeActions) ? [...student.activeActions] : [];
-    const aidx = aa.findIndex((a: any) => String(a?.id) === String(actionId));
-    if (aidx >= 0) {
-      aa[aidx] = action;
-      student.activeActions = aa;
-    }
-
-    const nextStudents = [...state.students];
-    nextStudents[idx] = student;
-    await setAppState({ students: nextStudents });
-
-    return NextResponse.json({ student });
+  if (idx < 0) {
+    return NextResponse.json({ ok: false, error: "Student not found" }, { status: 404 });
   }
 
-  // 2) Fallback old activeActions
-  const actions = Array.isArray(student.activeActions) ? [...student.activeActions] : [];
-  const aidx = actions.findIndex((a: any) => String(a.id) === String(actionId));
-  if (aidx < 0) return NextResponse.json({ error: "Action not found" }, { status: 404 });
+  const st = { ...(students[idx] || {}) };
 
-  const action = { ...(actions[aidx] || {}) };
-  const ticks = Array.isArray(action.ticks) ? [...action.ticks] : [];
-  const tIdx = ticks.findIndex((t: any) => String(t.date) === String(date));
-  if (tIdx >= 0) ticks[tIdx] = { ...ticks[tIdx], completed };
-  else ticks.push({ date, completed });
+  // Update both activeActions and actionsByMonth if exist
+  const updateList = (list: any[]) =>
+    (Array.isArray(list) ? list : []).map((a: any) => {
+      if (String(a?.id || "") !== actionIdStr) return a;
 
-  action.ticks = ticks;
-  actions[aidx] = action;
-  student.activeActions = actions;
+      const ticks = normalizeTicks(a?.ticks);
+      const tIdx = ticks.findIndex((t) => t.date === dateStr);
+      if (tIdx >= 0) ticks[tIdx] = { date: dateStr, completed: completedBool };
+      else ticks.push({ date: dateStr, completed: completedBool });
 
-  const nextStudents = [...state.students];
-  nextStudents[idx] = student;
+      return { ...a, ticks };
+    });
+
+  st.activeActions = updateList(st.activeActions);
+
+  if (st.actionsByMonth && typeof st.actionsByMonth === "object") {
+    const nextAbm: any = {};
+    for (const k of Object.keys(st.actionsByMonth)) {
+      nextAbm[k] = updateList(st.actionsByMonth[k]);
+    }
+    st.actionsByMonth = nextAbm;
+  }
+
+  const nextStudents = [...students];
+  nextStudents[idx] = st;
   await setAppState({ students: nextStudents });
 
-  return NextResponse.json({ student });
+  return NextResponse.json({ student: st });
 }
