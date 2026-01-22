@@ -239,7 +239,7 @@ export default function DashboardApp() {
     <div className="p-6 text-slate-600">Không tìm thấy dữ liệu học sinh.</div>
   )
 ) : (
-  <TeacherView user={user} students={students} setStudents={setStudents} onLogout={onLogout} />
+  <TeacherView students={students} setStudents={setStudents} onLogout={onLogout} />
 )}
     </div>
   );
