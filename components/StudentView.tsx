@@ -107,7 +107,11 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
 
   // ====== STATE ======
   const [selectedTaskMonth, setSelectedTaskMonth] = useState<string>(inferredTaskMonth);
-  const [selectedDate, setSelectedDate] = useState<string>(() => `${inferredTaskMonth}-01`);
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const today = isoDate(new Date());
+    if (today.startsWith(inferredTaskMonth)) return today;
+    return `${inferredTaskMonth}-01`;
+  });
 
   // tick long-term
   const [trackingMode, setTrackingMode] = useState<"range" | "month">("range");
@@ -133,7 +137,13 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
   // Ensure selectedDate stays inside selectedTaskMonthSafe
   useEffect(() => {
     if (selectedDate.slice(0, 7) !== selectedTaskMonthSafe) {
-      setSelectedDate(`${selectedTaskMonthSafe}-01`);
+      // If today is in the new selected month, pick today
+      const today = isoDate(new Date());
+      if (today.startsWith(selectedTaskMonthSafe)) {
+        setSelectedDate(today);
+      } else {
+        setSelectedDate(`${selectedTaskMonthSafe}-01`);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTaskMonthSafe]);
@@ -291,16 +301,14 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                   <button
                     key={a.id}
                     onClick={() => toggleDaily(a)}
-                    className={`w-full text-left rounded-2xl border p-4 transition ${
-                      done ? "border-emerald-200 bg-emerald-50/50" : "border-slate-200 bg-white hover:bg-slate-50"
-                    }`}
+                    className={`w-full text-left rounded-2xl border p-4 transition ${done ? "border-emerald-200 bg-emerald-50/50" : "border-slate-200 bg-white hover:bg-slate-50"
+                      }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-start gap-3">
                         <div
-                          className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center ${
-                            done ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-300 text-transparent"
-                          }`}
+                          className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center ${done ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-300 text-transparent"
+                            }`}
                         >
                           <Check size={14} />
                         </div>
@@ -331,21 +339,19 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => setTrackingMode("range")}
-                className={`px-3 py-2 rounded-xl text-sm font-semibold border ${
-                  trackingMode === "range"
+                className={`px-3 py-2 rounded-xl text-sm font-semibold border ${trackingMode === "range"
                     ? "bg-indigo-600 text-white border-indigo-600"
                     : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                }`}
+                  }`}
               >
                 7/30/90 ngày
               </button>
               <button
                 onClick={() => setTrackingMode("month")}
-                className={`px-3 py-2 rounded-xl text-sm font-semibold border ${
-                  trackingMode === "month"
+                className={`px-3 py-2 rounded-xl text-sm font-semibold border ${trackingMode === "month"
                     ? "bg-indigo-600 text-white border-indigo-600"
                     : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                }`}
+                  }`}
               >
                 Theo tháng
               </button>
@@ -356,11 +362,10 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                     <button
                       key={n}
                       onClick={() => setRangeDays(n as 7 | 30 | 90)}
-                      className={`px-3 py-2 rounded-xl text-sm font-semibold border ${
-                        rangeDays === n
+                      className={`px-3 py-2 rounded-xl text-sm font-semibold border ${rangeDays === n
                           ? "bg-emerald-600 text-white border-emerald-600"
                           : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                      }`}
+                        }`}
                     >
                       {n} ngày
                     </button>
@@ -403,11 +408,10 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                               onClick={async () => {
                                 await onUpdateAction(action.id, dateStr, !done);
                               }}
-                              className={`w-10 h-10 rounded-xl border flex items-center justify-center text-xs font-semibold transition ${
-                                done
+                              className={`w-10 h-10 rounded-xl border flex items-center justify-center text-xs font-semibold transition ${done
                                   ? "bg-emerald-100 text-emerald-700 border-emerald-200"
                                   : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
-                              }`}
+                                }`}
                               title={dateStr}
                             >
                               {done ? <Check size={18} /> : <span className="text-[10px]">{shortDayLabel(dateStr)}</span>}
