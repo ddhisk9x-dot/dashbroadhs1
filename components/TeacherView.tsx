@@ -347,8 +347,8 @@ const TeacherView: React.FC<TeacherViewProps> = ({
     if (trackingMode === "month") return getDatesInMonth(trackingMonth);
 
     const n = trackingMode === "7" ? 7 : trackingMode === "30" ? 30 : 90;
-    // range mode: chỉ lấy ngày thuộc đúng tháng nhiệm vụ để đếm không lệch tháng
-    return getLastNDays(n).filter((d) => d.slice(0, 7) === monthForActions);
+    // range mode: hiển thị đúng N ngày gần nhất (không filter theo tháng để tránh mất ngày hôm nay nếu qua tháng mới)
+    return getLastNDays(n);
   }, [trackingMode, trackingMonth, monthForActions]);
 
   const actionsForView = useMemo(() => {
@@ -726,8 +726,8 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                           type="button"
                           onClick={() => toggleMonth(m)}
                           className={`flex items-center justify-between px-3 py-2 rounded-xl border text-sm font-semibold transition-all ${checked
-                              ? "bg-white border-emerald-200 text-emerald-700 shadow-sm"
-                              : "bg-white/70 border-slate-200 text-slate-700 hover:bg-white"
+                            ? "bg-white border-emerald-200 text-emerald-700 shadow-sm"
+                            : "bg-white/70 border-slate-200 text-slate-700 hover:bg-white"
                             }`}
                         >
                           <span>{m}</span>
@@ -967,12 +967,12 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                         <td className="px-6 py-4 text-sm text-slate-600">
                           <span
                             className={`px-2.5 py-1 rounded-lg font-bold text-xs ${avg === "N/A"
-                                ? "bg-slate-100 text-slate-500"
-                                : Number(avg) >= 8
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : Number(avg) >= 5
-                                    ? "bg-amber-100 text-amber-700"
-                                    : "bg-rose-100 text-rose-700"
+                              ? "bg-slate-100 text-slate-500"
+                              : Number(avg) >= 8
+                                ? "bg-emerald-100 text-emerald-700"
+                                : Number(avg) >= 5
+                                  ? "bg-amber-100 text-amber-700"
+                                  : "bg-rose-100 text-rose-700"
                               }`}
                           >
                             {avg}
@@ -986,10 +986,10 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                           {student.aiReport ? (
                             <span
                               className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${student.aiReport.riskLevel === "Cao"
-                                  ? "bg-red-50 text-red-600 border-red-100"
-                                  : student.aiReport.riskLevel === "Trung bình"
-                                    ? "bg-orange-50 text-orange-600 border-orange-100"
-                                    : "bg-emerald-50 text-emerald-600 border-emerald-100"
+                                ? "bg-red-50 text-red-600 border-red-100"
+                                : student.aiReport.riskLevel === "Trung bình"
+                                  ? "bg-orange-50 text-orange-600 border-orange-100"
+                                  : "bg-emerald-50 text-emerald-600 border-emerald-100"
                                 }`}
                             >
                               {student.aiReport.riskLevel === "Cao" && <AlertTriangle size={12} />}
@@ -1085,8 +1085,8 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               <button
                 onClick={() => setActiveTab("report")}
                 className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${activeTab === "report"
-                    ? "border-indigo-600 text-indigo-600"
-                    : "border-transparent text-slate-500 hover:text-slate-700"
+                  ? "border-indigo-600 text-indigo-600"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
                   }`}
                 type="button"
               >
@@ -1098,8 +1098,8 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               <button
                 onClick={() => setActiveTab("tracking")}
                 className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${activeTab === "tracking"
-                    ? "border-indigo-600 text-indigo-600"
-                    : "border-transparent text-slate-500 hover:text-slate-700"
+                  ? "border-indigo-600 text-indigo-600"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
                   }`}
                 type="button"
               >
@@ -1136,18 +1136,18 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
                     <div
                       className={`p-5 rounded-2xl border ${viewingStudent.aiReport.riskLevel === "Cao"
-                          ? "border-red-200 bg-red-50/50"
-                          : viewingStudent.aiReport.riskLevel === "Trung bình"
-                            ? "border-orange-200 bg-orange-50/50"
-                            : "border-emerald-200 bg-emerald-50/50"
+                        ? "border-red-200 bg-red-50/50"
+                        : viewingStudent.aiReport.riskLevel === "Trung bình"
+                          ? "border-orange-200 bg-orange-50/50"
+                          : "border-emerald-200 bg-emerald-50/50"
                         }`}
                     >
                       <h3
                         className={`font-bold text-sm uppercase tracking-wide mb-3 ${viewingStudent.aiReport.riskLevel === "Cao"
-                            ? "text-red-700"
-                            : viewingStudent.aiReport.riskLevel === "Trung bình"
-                              ? "text-orange-700"
-                              : "text-emerald-700"
+                          ? "text-red-700"
+                          : viewingStudent.aiReport.riskLevel === "Trung bình"
+                            ? "text-orange-700"
+                            : "text-emerald-700"
                           }`}
                       >
                         Đánh giá Tổng quan
@@ -1319,8 +1319,8 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                                       />
                                       <div
                                         className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-medium transition-all ${isDone
-                                            ? "bg-emerald-100 text-emerald-700"
-                                            : "bg-slate-50 text-slate-400 border border-slate-100"
+                                          ? "bg-emerald-100 text-emerald-700"
+                                          : "bg-slate-50 text-slate-400 border border-slate-100"
                                           }`}
                                         title={dateString}
                                       >
