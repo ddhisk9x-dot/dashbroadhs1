@@ -129,22 +129,37 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
 
   const selectedTaskMonthSafe = useMemo(() => {
     if (monthKeys.includes(selectedTaskMonth)) return selectedTaskMonth;
+    // Fallback logic: Priority 1: Current Month, Priority 2: Inferred
+    const cur = isoMonth(new Date());
+    if (monthKeys.includes(cur)) return cur;
     return inferredTaskMonth;
   }, [selectedTaskMonth, monthKeys, inferredTaskMonth]);
 
   // Ensure selectedDate stays inside selectedTaskMonthSafe
   useEffect(() => {
+    const today = isoDate(new Date());
+
     if (selectedDate.slice(0, 7) !== selectedTaskMonthSafe) {
-      // If today is in the new selected month, pick today
-      const today = isoDate(new Date());
       if (today.startsWith(selectedTaskMonthSafe)) {
         setSelectedDate(today);
       } else {
         setSelectedDate(`${selectedTaskMonthSafe}-01`);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTaskMonthSafe]);
+
+  // Force-check on mount: if today is valid but not selected, select it.
+  useEffect(() => {
+    const today = isoDate(new Date());
+    const curM = isoMonth(new Date());
+    if (monthKeys.includes(curM) && selectedTaskMonth !== curM) {
+      setSelectedTaskMonth(curM);
+    }
+    if (today.startsWith(curM) && selectedDate !== today) {
+      setSelectedDate(today);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ====== DAILY ACTIONS (THEO THÁNG NHIỆM VỤ) ======
   const dailyActions = useMemo(() => getActionsForMonth(student, selectedTaskMonthSafe), [student, selectedTaskMonthSafe]);
