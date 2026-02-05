@@ -71,6 +71,10 @@ const ScoreChart: React.FC<ScoreChartProps> = ({ data, stats, subject }) => {
           {showLit && <Line connectNulls={false} type="monotone" dataKey="gradeLit" name="TB Khối Văn" stroke="#ec4899" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />}
           {showEng && <Line connectNulls={false} type="monotone" dataKey="gradeEng" name="TB Khối Anh" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />}
 
+          {showMath && <Line connectNulls={false} type="monotone" dataKey="targetMath" name="Mục tiêu Toán" stroke="#3b82f6" strokeWidth={1} strokeDasharray="5 5" dot={false} label={false} />}
+          {showLit && <Line connectNulls={false} type="monotone" dataKey="targetLit" name="Mục tiêu Văn" stroke="#ec4899" strokeWidth={1} strokeDasharray="5 5" dot={false} label={false} />}
+          {showEng && <Line connectNulls={false} type="monotone" dataKey="targetEng" name="Mục tiêu Anh" stroke="#8b5cf6" strokeWidth={1} strokeDasharray="5 5" dot={false} label={false} />}
+
         </LineChart>
       </ResponsiveContainer>
     </div>
