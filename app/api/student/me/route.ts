@@ -172,6 +172,34 @@ export async function GET() {
     };
   });
 
+  // ✅ New: AI Target calculation
+  const subjectTargets: Record<string, { math: number; lit: number; eng: number }> = {};
+  (student.scores || []).forEach((sc: any) => {
+    const g = gradeAvgSubjectsByMonth[sc.month] || { math: 0, lit: 0, eng: 0 };
+    const calcT = (val: number | null, gradeVal: number) => {
+      const base = Math.max(val || 0, gradeVal);
+      const tt = base + 0.5;
+      return tt > 10 ? 10 : parseFloat(tt.toFixed(1));
+    };
+    subjectTargets[sc.month] = {
+      math: calcT(sc.math, g.math),
+      lit: calcT(sc.lit, g.lit),
+      eng: calcT(sc.eng, g.eng),
+    };
+  });
+
+  // ✅ New: Next Exam Target
+  const sortedScores = [...(student.scores || [])].sort((a: any, b: any) => String(b.month).localeCompare(String(a.month)));
+  const latestMonth = sortedScores[0]?.month;
+  const latestT = latestMonth ? subjectTargets[latestMonth] : { math: 8.5, lit: 8.5, eng: 8.5 };
+
+  const nextExamTargets = {
+    math: Math.min(10, latestT.math + 0.2),
+    lit: Math.min(10, latestT.lit + 0.2),
+    eng: Math.min(10, latestT.eng + 0.2),
+    message: "Hãy cố gắng vượt qua mức trung bình khối 0.5 điểm để bứt phá nhé!"
+  };
+
   const finalStudent = {
     ...student,
     dashboardStats: {
@@ -182,7 +210,9 @@ export async function GET() {
       targetScore: 8.5,
       leaderboardClass: leaderboardClassMap,
       leaderboardGrade: leaderboardGradeMap,
-      gradeAvgSubjectsByMonth // ✅ New field
+      gradeAvgSubjectsByMonth,
+      subjectTargets,
+      nextExamTargets
     }
   };
 
