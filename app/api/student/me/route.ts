@@ -172,32 +172,44 @@ export async function GET() {
     };
   });
 
-  // ✅ New: AI Target calculation
+  // ✅ Refined: Smart Dynamic AI Target calculation
   const subjectTargets: Record<string, { math: number; lit: number; eng: number }> = {};
-  (student.scores || []).forEach((sc: any) => {
-    const g = gradeAvgSubjectsByMonth[sc.month] || { math: 0, lit: 0, eng: 0 };
-    const calcT = (val: number | null, gradeVal: number) => {
-      const base = Math.max(val || 0, gradeVal);
-      const tt = base + 0.5;
-      return tt > 10 ? 10 : parseFloat(tt.toFixed(1));
+  const sortedScoreList = [...(student.scores || [])].sort((a: any, b: any) => String(a.month).localeCompare(String(b.month)));
+
+  sortedScoreList.forEach((sc: any, idx) => {
+    const prev = sortedScoreList[idx - 1] || sc;
+    const g = gradeAvgSubjectsByMonth[sc.month] || { math: 6, lit: 6, eng: 6 };
+
+    const smartT = (curr: number | null, p: number | null, gAvg: number) => {
+      if (curr === null) return 0;
+      const trend = curr - (p || curr);
+      // Logic: target is at least current + 0.2
+      // If improving (trend > 0), AI pushes more (+0.1)
+      // If below grade average, AI pushes to catch up
+      let growthValue = 0.2;
+      if (trend > 0) growthValue += 0.1;
+      if (curr < gAvg) growthValue += 0.2;
+
+      const t = Math.max(curr + growthValue, gAvg + 0.1);
+      return parseFloat(Math.min(10, t).toFixed(1));
     };
+
     subjectTargets[sc.month] = {
-      math: calcT(sc.math, g.math),
-      lit: calcT(sc.lit, g.lit),
-      eng: calcT(sc.eng, g.eng),
+      math: smartT(sc.math, prev.math, g.math),
+      lit: smartT(sc.lit, prev.lit, g.lit),
+      eng: smartT(sc.eng, prev.eng, g.eng),
     };
   });
 
-  // ✅ New: Next Exam Target
-  const sortedScores = [...(student.scores || [])].sort((a: any, b: any) => String(b.month).localeCompare(String(a.month)));
-  const latestMonth = sortedScores[0]?.month;
-  const latestT = latestMonth ? subjectTargets[latestMonth] : { math: 8.5, lit: 8.5, eng: 8.5 };
+  // ✅ New Exam Target (Prediction for next phase)
+  const lastSc = sortedScoreList[sortedScoreList.length - 1];
+  const lastT = lastSc ? subjectTargets[lastSc.month] : { math: 8.5, lit: 8.5, eng: 8.5 };
 
   const nextExamTargets = {
-    math: Math.min(10, latestT.math + 0.2),
-    lit: Math.min(10, latestT.lit + 0.2),
-    eng: Math.min(10, latestT.eng + 0.2),
-    message: "Hãy cố gắng vượt qua mức trung bình khối 0.5 điểm để bứt phá nhé!"
+    math: Math.min(10, lastT.math + 0.2),
+    lit: Math.min(10, lastT.lit + 0.2),
+    eng: Math.min(10, lastT.eng + 0.2),
+    message: "Dựa trên xu hướng tiến bộ, đây là mục tiêu tối ưu để bạn bứt phá trong kỳ thi tới!"
   };
 
   const finalStudent = {
