@@ -3,15 +3,17 @@ import { Trophy, Medal, Award } from "lucide-react";
 import { LeaderboardItem } from "../types";
 
 type Props = {
-    leaderboardClass: LeaderboardItem[];
-    leaderboardGrade: LeaderboardItem[];
-    currentMhs: string; // to highlight self
+    leaderboardClass: Record<string, LeaderboardItem[]>;
+    leaderboardGrade: Record<string, LeaderboardItem[]>;
+    currentMhs: string;
+    month: string;
 };
 
-export default function Leaderboard({ leaderboardClass, leaderboardGrade, currentMhs }: Props) {
+export default function Leaderboard({ leaderboardClass, leaderboardGrade, currentMhs, month }: Props) {
     const [tab, setTab] = useState<"class" | "grade">("class");
 
-    const data = tab === "class" ? leaderboardClass : leaderboardGrade;
+    const dataMap = tab === "class" ? leaderboardClass : leaderboardGrade;
+    const data = dataMap?.[month] || [];
 
     const getIcon = (rank: number) => {
         if (rank === 1) return <Trophy size={20} className="text-yellow-500" />;
@@ -29,10 +31,15 @@ export default function Leaderboard({ leaderboardClass, leaderboardGrade, curren
 
     return (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                    <Trophy className="text-indigo-600" size={20} />
-                    <div className="text-sm font-bold text-slate-800">Bảng Xếp Hạng (Tháng này)</div>
+            <div className="flex items-start justify-between mb-4">
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                        <Trophy className="text-indigo-600" size={20} />
+                        <div className="text-sm font-bold text-slate-800">Bảng Xếp Hạng</div>
+                    </div>
+                    <span className="text-[10px] bg-indigo-100 text-indigo-700 font-mono px-2 py-0.5 rounded-full w-fit">
+                        Tháng {month}
+                    </span>
                 </div>
 
                 <div className="flex bg-slate-100 p-1 rounded-xl">
@@ -48,14 +55,14 @@ export default function Leaderboard({ leaderboardClass, leaderboardGrade, curren
                         className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${tab === "grade" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-600"
                             }`}
                     >
-                        Toàn Khối
+                        Khối
                     </button>
                 </div>
             </div>
 
             <div className="space-y-3">
                 {data.length === 0 ? (
-                    <div className="text-center py-4 text-xs text-slate-400 italic">Chưa có dữ liệu xếp hạng.</div>
+                    <div className="text-center py-4 text-xs text-slate-400 italic">Chưa có dữ liệu tháng {month}.</div>
                 ) : (
                     data.map((item) => {
                         const isMe = item.id === currentMhs;
@@ -86,7 +93,7 @@ export default function Leaderboard({ leaderboardClass, leaderboardGrade, curren
             </div>
 
             <div className="mt-4 text-[11px] text-slate-400 text-center">
-                * Xếp hạng dựa trên tổng số nhiệm vụ hoàn thành trong tháng.
+                * Top 3 học sinh chăm chỉ nhất tháng {month}.
             </div>
         </div>
     );

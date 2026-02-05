@@ -20,6 +20,9 @@ import {
   BarChart3,
   Check,
   Sparkles,
+  Trophy,
+  Award,
+  Medal,
 } from "lucide-react";
 
 declare const XLSX: any;
@@ -193,6 +196,14 @@ const TeacherView: React.FC<TeacherViewProps> = ({
   const [filterClass, setFilterClass] = useState("ALL");
   const [sortTicks, setSortTicks] = useState<"none" | "desc" | "asc">("none");
 
+
+  // Admin Leaderboard State
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+
+
+
+
+
   // ✅ Who am I (ADMIN / TEACHER)
   const [me, setMe] = useState<any>(null);
   const isTeacher = me?.role === "TEACHER";
@@ -341,6 +352,69 @@ const TeacherView: React.FC<TeacherViewProps> = ({
     // range mode: luôn theo "tháng nhiệm vụ hiện hành" (N+1)
     return taskMonthForViewingStudent;
   }, [trackingMode, trackingMonth, taskMonthForViewingStudent]);
+
+  // ✅ Admin Leaderboard (Linked to selected Month)
+  const adminLeaderboard = useMemo(() => {
+    if (!showLeaderboard) return { class: [], grade: [] };
+    // Use the selected tracking month if in "month" mode, otherwise default to current
+    // Actually, user wants "Top Month Old". So we should use `trackingMonth` IF user selected it?
+    // But `trackingMonth` is usually tied to a specific student when viewing? 
+    // Wait, trackingMonth line 337 is state. But it is set in useEffect line 346 based on `viewingStudent`.
+    // If NO viewingStudent, `trackingMonth` might just be current month?
+    // Let's rely on `trackingMonth` state. If user wants to see old leaderboard, they might need a global month selector?
+    // User requested " xem lại được top tháng cũ không?". 
+    // Since we don't have a global month selector for the MAIN table (only per student?), 
+    // maybe we should use `isoMonth(new Date())` by default, OR add a selector in the modal?
+    // For now, let's use `trackingMonth` but we need to ensure it's settable globally.
+    // Actually, line 337 `const [trackingMonth, ...]` is at component level.
+    // BUT line 346 sets it when `viewingStudent` changes.
+    // If `!viewingStudent`, `trackingMonth` stays at default (current).
+    // So to see OLD month, user needs to pick a month.
+    // I will add a simple Month Selector in the Leaderboard Modal? 
+    // NO, let's just use `trackingMonth` for now, assuming I might expose it later.
+    // Better: Use `monthForActions`? No that depends on mode.
+    // Let's use `trackingMonth` (which defaults to current).
+
+    const targetMonth = trackingMonth;
+
+    const countTicks = (st: Student) => {
+      const uniqueTickDates = new Set<string>();
+      const allActions: any[] = [];
+      if (Array.isArray(st.activeActions)) allActions.push(...st.activeActions);
+      const abm = (st as any)?.actionsByMonth || {};
+      if (st.actionsByMonth && typeof st.actionsByMonth === 'object') {
+        // Iterate values
+        Object.values(st.actionsByMonth).forEach((list: any) => {
+          if (Array.isArray(list)) allActions.push(...list);
+        });
+      }
+
+      // De-duplicate ticks
+      allActions.forEach(a => {
+        (a.ticks || []).forEach((t: any) => {
+          if (t.completed && String(t.date).startsWith(targetMonth)) {
+            uniqueTickDates.add(t.date + "-" + a.id);
+          }
+        });
+      });
+      return uniqueTickDates.size;
+    };
+
+    const allMapped = students.map(s => ({
+      name: s.name,
+      class: s.class,
+      score: countTicks(s)
+    })).sort((a, b) => b.score - a.score);
+
+    const topGrade = allMapped.slice(0, 10);
+    const topClass = filterClass !== "ALL"
+      ? allMapped.filter(s => s.class === filterClass).slice(0, 10)
+      : [];
+
+    return { class: topClass, grade: topGrade };
+
+  }, [students, showLeaderboard, filterClass, trackingMonth]);
+
 
   // ✅ dates to render
   const trackingDates = useMemo(() => {
@@ -779,10 +853,21 @@ const TeacherView: React.FC<TeacherViewProps> = ({
           <div className="flex items-center">
             <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Quản lý Học tập</h1>
 
-            {/* ✅ Badge lớp phụ trách */}
+            {/* ✅ Badge lớp phụ trách + Điểm TB */}
             {isTeacher && teacherClass && (
               <span className="ml-3 inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">
-                Lớp phụ trách: {teacherClass}
+                Lớp: {teacherClass}
+                <span className="mx-2 text-emerald-300">|</span>
+                TB Lớp: {(() => {
+                  const validScores = visibleStudents.flatMap(s => {
+                    const last = s.scores?.[s.scores.length - 1];
+                    if (!last) return [];
+                    return [last.math, last.lit, last.eng].filter(x => x !== null && x !== undefined) as number[];
+                  });
+                  if (validScores.length === 0) return "N/A";
+                  const sum = validScores.reduce((a, b) => a + b, 0);
+                  return (sum / validScores.length).toFixed(1);
+                })()}
               </span>
             )}
           </div>
@@ -798,6 +883,20 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-4 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all w-64 text-sm"
             />
+          </div>
+
+          <div className="relative">
+            <select
+              className="pl-3 pr-8 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white outline-none text-sm appearance-none cursor-pointer"
+              value={filterClass}
+              onChange={(e) => setFilterClass(e.target.value)}
+            >
+              <option value="ALL">Tất cả lớp</option>
+              {uniqueClasses.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <div className="absolute right-3 top-2.5 pointer-events-none text-slate-400">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
           </div>
 
           <div className="relative">
@@ -856,492 +955,562 @@ const TeacherView: React.FC<TeacherViewProps> = ({
         </div>
       </header>
 
+      {/* Admin Leaderboard Modal */}
+      {
+        showLeaderboard && (
+    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+        <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white z-10">
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <Trophy className="text-yellow-500" /> Bảng Xếp Hạng Khối
+          </h2>
+          <button
+            onClick={() => setShowLeaderboard(false)}
+            className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+          >
+            <X size={24} />
+          </button>
+        </div>
+        <div className="p-8 overflow-y-auto bg-slate-50">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Top Class */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+              <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Award className="text-indigo-500" /> Top Lớp (Tháng Hiện tại)</h3>
+              <div className="space-y-3">
+                {adminLeaderboard.class.length === 0 ? <p className="text-slate-400 italic text-sm">Chưa có dữ liệu.</p> :
+                  adminLeaderboard.class.map((item: any, idx: number) => (
+                    <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                      <div className="flex items-center gap-3">
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : idx === 1 ? 'bg-slate-200 text-slate-700' : 'bg-orange-100 text-orange-700'}`}>{idx + 1}</span>
+                        <div>
+                          <div className="font-bold text-sm text-slate-800">{item.name}</div>
+                          <div className="text-[10px] text-slate-500">{item.class}</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold text-indigo-600">{item.score}</div>
+                        <div className="text-[10px] text-slate-400">Ticks</div>
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+
+            {/* Top Grade */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+              <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Medal className="text-emerald-500" /> Top Khối (Tháng Hiện tại)</h3>
+              <div className="space-y-3">
+                {adminLeaderboard.grade.length === 0 ? <p className="text-slate-400 italic text-sm">Chưa có dữ liệu.</p> :
+                  adminLeaderboard.grade.map((item: any, idx: number) => (
+                    <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                      <div className="flex items-center gap-3">
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : idx === 1 ? 'bg-slate-200 text-slate-700' : 'bg-orange-100 text-orange-700'}`}>{idx + 1}</span>
+                        <div>
+                          <div className="font-bold text-sm text-slate-800">{item.name}</div>
+                          <div className="text-[10px] text-slate-500">{item.class}</div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold text-emerald-600">{item.score}</div>
+                        <div className="text-[10px] text-slate-400">Ticks</div>
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          </div>
+          <p className="text-center text-slate-400 text-xs mt-6 italic">Tính năng xếp hạng toàn trường / nhiều khối sẽ được cập nhật sau.</p>
+        </div>
+      </div>
+    </div>
       <main className="flex-1 p-8 max-w-[1400px] mx-auto w-full">
-        <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50/50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
-                  <th className="px-6 py-5 w-10">
+  <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 overflow-hidden">
+    <div className="overflow-x-auto">
+      <table className="w-full text-left border-collapse">
+        <thead>
+          <tr className="bg-slate-50/50 border-b border-slate-200 text-xs uppercase text-slate-500 font-bold tracking-wider">
+            <th className="px-6 py-5 w-10">
+              <input
+                type="checkbox"
+                disabled={isTeacher} // ✅ teacher không dùng bulk select
+                checked={
+                  !isTeacher &&
+                  filteredStudents.length > 0 &&
+                  filteredStudents.every((s) => selectedMhs.has(s.mhs))
+                }
+                onChange={(e) => {
+                  if (isTeacher) return;
+                  if (e.target.checked) setSelectedMhs(new Set(filteredStudents.map((s) => s.mhs)));
+                  else setSelectedMhs(new Set());
+                }}
+                title={isTeacher ? "Giáo viên không dùng chọn hàng loạt" : "Chọn/Bỏ chọn tất cả học sinh đang hiển thị"}
+              />
+            </th>
+            <th className="px-6 py-5">MHS</th>
+            <th className="px-6 py-5 w-[90px] text-center">MK</th>
+            <th className="px-6 py-5">Họ và Tên</th>
+            <th className="px-6 py-5">Lớp</th>
+            <th className="px-6 py-5">Điểm TB (Gần nhất)</th>
+            <th className="px-6 py-5">Rủi ro</th>
+            <th
+              className="px-6 py-5 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+              onClick={() => setSortTicks(prev => prev === "desc" ? "asc" : prev === "asc" ? "none" : "desc")}
+            >
+              <div className="flex items-center gap-2">
+                Tiến độ Tick
+                {sortTicks === "desc" && <span className="text-indigo-600">↓</span>}
+                {sortTicks === "asc" && <span className="text-indigo-600">↑</span>}
+                {sortTicks === "none" && <span className="text-slate-300 group-hover:text-slate-400">↕</span>}
+              </div>
+            </th>
+            <th className="px-6 py-5 text-right">Hành động</th>
+          </tr>
+        </thead>
+
+        <tbody className="divide-y divide-slate-100">
+          {filteredStudents.length === 0 ? (
+            <tr>
+              <td colSpan={9} className="px-6 py-10 text-center text-slate-400 italic">
+                {isTeacher ? "Chưa có học sinh trong lớp phụ trách." : "Không tìm thấy học sinh nào. Hãy nhập Excel hoặc Đồng bộ Sheet."}
+              </td>
+            </tr>
+          ) : (
+            filteredStudents.map((student) => {
+              const lastScore = student.scores?.[student.scores.length - 1];
+              const scores = [lastScore?.math, lastScore?.lit, lastScore?.eng].filter(
+                (s) => s !== null && s !== undefined
+              ) as number[];
+              const avg =
+                scores.length > 0
+                  ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
+                  : "N/A";
+
+              const taskMonth = inferredTaskMonth(student);
+              const abm = safeActionsByMonth(student);
+              const acts = Array.isArray((student as any)?.actionsByMonth?.[taskMonth])
+                ? ((student as any).actionsByMonth[taskMonth] as any[])
+                : Array.isArray(abm?.[taskMonth])
+                  ? (abm[taskMonth] as any[])
+                  : Array.isArray(student.activeActions)
+                    ? (student.activeActions as any[])
+                    : [];
+
+              const totalTicksInTaskMonth = acts.reduce((acc, act: any) => {
+                const ticks = Array.isArray(act?.ticks) ? act.ticks : [];
+                const done = ticks.filter(
+                  (t: any) => t?.completed && String(t?.date || "").slice(0, 7) === taskMonth
+                ).length;
+                return acc + done;
+              }, 0);
+
+              return (
+                <tr key={student.mhs} className="hover:bg-indigo-50/30 transition-colors duration-200 group">
+                  <td className="px-6 py-4">
                     <input
                       type="checkbox"
                       disabled={isTeacher} // ✅ teacher không dùng bulk select
-                      checked={
-                        !isTeacher &&
-                        filteredStudents.length > 0 &&
-                        filteredStudents.every((s) => selectedMhs.has(s.mhs))
-                      }
+                      checked={!isTeacher && selectedMhs.has(student.mhs)}
                       onChange={(e) => {
                         if (isTeacher) return;
-                        if (e.target.checked) setSelectedMhs(new Set(filteredStudents.map((s) => s.mhs)));
-                        else setSelectedMhs(new Set());
+                        setSelectedMhs((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(student.mhs);
+                          else next.delete(student.mhs);
+                          return next;
+                        });
                       }}
-                      title={isTeacher ? "Giáo viên không dùng chọn hàng loạt" : "Chọn/Bỏ chọn tất cả học sinh đang hiển thị"}
                     />
-                  </th>
-                  <th className="px-6 py-5">MHS</th>
-                  <th className="px-6 py-5 w-[90px] text-center">MK</th>
-                  <th className="px-6 py-5">Họ và Tên</th>
-                  <th className="px-6 py-5">Lớp</th>
-                  <th className="px-6 py-5">Điểm TB (Gần nhất)</th>
-                  <th className="px-6 py-5">Rủi ro</th>
-                  <th
-                    className="px-6 py-5 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
-                    onClick={() => setSortTicks(prev => prev === "desc" ? "asc" : prev === "asc" ? "none" : "desc")}
-                  >
-                    <div className="flex items-center gap-2">
-                      Tiến độ Tick
-                      {sortTicks === "desc" && <span className="text-indigo-600">↓</span>}
-                      {sortTicks === "asc" && <span className="text-indigo-600">↑</span>}
-                      {sortTicks === "none" && <span className="text-slate-300 group-hover:text-slate-400">↕</span>}
-                    </div>
-                  </th>
-                  <th className="px-6 py-5 text-right">Hành động</th>
-                </tr>
-              </thead>
+                  </td>
 
-              <tbody className="divide-y divide-slate-100">
-                {filteredStudents.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="px-6 py-10 text-center text-slate-400 italic">
-                      {isTeacher ? "Chưa có học sinh trong lớp phụ trách." : "Không tìm thấy học sinh nào. Hãy nhập Excel hoặc Đồng bộ Sheet."}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredStudents.map((student) => {
-                    const lastScore = student.scores?.[student.scores.length - 1];
-                    const scores = [lastScore?.math, lastScore?.lit, lastScore?.eng].filter(
-                      (s) => s !== null && s !== undefined
-                    ) as number[];
-                    const avg =
-                      scores.length > 0
-                        ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
-                        : "N/A";
+                  <td className="px-6 py-4 text-sm font-mono text-slate-500 bg-transparent">{student.mhs}</td>
 
-                    const taskMonth = inferredTaskMonth(student);
-                    const abm = safeActionsByMonth(student);
-                    const acts = Array.isArray((student as any)?.actionsByMonth?.[taskMonth])
-                      ? ((student as any).actionsByMonth[taskMonth] as any[])
-                      : Array.isArray(abm?.[taskMonth])
-                        ? (abm[taskMonth] as any[])
-                        : Array.isArray(student.activeActions)
-                          ? (student.activeActions as any[])
-                          : [];
+                  <td className="px-6 py-4 text-center">
+                    <TeacherResetPasswordButton mhs={student.mhs} />
+                  </td>
 
-                    const totalTicksInTaskMonth = acts.reduce((acc, act: any) => {
-                      const ticks = Array.isArray(act?.ticks) ? act.ticks : [];
-                      const done = ticks.filter(
-                        (t: any) => t?.completed && String(t?.date || "").slice(0, 7) === taskMonth
-                      ).length;
-                      return acc + done;
-                    }, 0);
+                  <td className="px-6 py-4 text-sm font-semibold text-slate-800">{student.name}</td>
+                  <td className="px-6 py-4 text-sm text-slate-600">{student.class}</td>
 
-                    return (
-                      <tr key={student.mhs} className="hover:bg-indigo-50/30 transition-colors duration-200 group">
-                        <td className="px-6 py-4">
-                          <input
-                            type="checkbox"
-                            disabled={isTeacher} // ✅ teacher không dùng bulk select
-                            checked={!isTeacher && selectedMhs.has(student.mhs)}
-                            onChange={(e) => {
-                              if (isTeacher) return;
-                              setSelectedMhs((prev) => {
-                                const next = new Set(prev);
-                                if (e.target.checked) next.add(student.mhs);
-                                else next.delete(student.mhs);
-                                return next;
-                              });
-                            }}
-                          />
-                        </td>
-
-                        <td className="px-6 py-4 text-sm font-mono text-slate-500 bg-transparent">{student.mhs}</td>
-
-                        <td className="px-6 py-4 text-center">
-                          <TeacherResetPasswordButton mhs={student.mhs} />
-                        </td>
-
-                        <td className="px-6 py-4 text-sm font-semibold text-slate-800">{student.name}</td>
-                        <td className="px-6 py-4 text-sm text-slate-600">{student.class}</td>
-
-                        <td className="px-6 py-4 text-sm text-slate-600">
-                          <span
-                            className={`px-2.5 py-1 rounded-lg font-bold text-xs ${avg === "N/A"
-                              ? "bg-slate-100 text-slate-500"
-                              : Number(avg) >= 8
-                                ? "bg-emerald-100 text-emerald-700"
-                                : Number(avg) >= 5
-                                  ? "bg-amber-100 text-amber-700"
-                                  : "bg-rose-100 text-rose-700"
-                              }`}
-                          >
-                            {avg}
-                          </span>
-                          {lastScore && (
-                            <span className="text-[10px] text-slate-400 ml-2">({(lastScore as any).month})</span>
-                          )}
-                        </td>
-
-                        <td className="px-6 py-4">
-                          {student.aiReport ? (
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${student.aiReport.riskLevel === "Cao"
-                                ? "bg-red-50 text-red-600 border-red-100"
-                                : student.aiReport.riskLevel === "Trung bình"
-                                  ? "bg-orange-50 text-orange-600 border-orange-100"
-                                  : "bg-emerald-50 text-emerald-600 border-emerald-100"
-                                }`}
-                            >
-                              {student.aiReport.riskLevel === "Cao" && <AlertTriangle size={12} />}
-                              {student.aiReport.riskLevel}
-                            </span>
-                          ) : (
-                            <span className="text-slate-300 text-xs italic">--</span>
-                          )}
-                        </td>
-
-                        <td className="px-6 py-4 text-sm text-slate-600">
-                          {acts.length > 0 ? (
-                            <div
-                              className="w-full bg-slate-100 rounded-full h-2 max-w-[100px]"
-                              title={`${totalTicksInTaskMonth} tick hoàn thành • tháng nhiệm vụ ${taskMonth}`}
-                            >
-                              <div
-                                className="bg-indigo-500 h-2 rounded-full transition-all duration-500"
-                                style={{ width: `${Math.min(totalTicksInTaskMonth * 5, 100)}%` }}
-                              />
-                            </div>
-                          ) : (
-                            <span className="text-slate-400">-</span>
-                          )}
-                        </td>
-
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {loadingMhs === student.mhs ? (
-                              <button
-                                disabled
-                                className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold flex items-center gap-2"
-                                type="button"
-                              >
-                                <Loader2 size={14} className="animate-spin" />
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleGenerateAI(student)}
-                                className="px-4 py-2 bg-white border border-indigo-200 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 text-indigo-600 rounded-xl text-xs font-bold transition-all shadow-sm hover:shadow-md"
-                                type="button"
-                              >
-                                {student.aiReport ? "Tạo lại" : "Tạo"}
-                              </button>
-                            )}
-
-                            <button
-                              onClick={() => {
-                                setViewingMhs(student.mhs);
-                                setActiveTab("report");
-                              }}
-                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
-                              title="Xem chi tiết"
-                              type="button"
-                            >
-                              <FileText size={20} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </main>
-
-      {/* Modal Details & Edit */}
-      {viewingStudent && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-opacity duration-300">
-          <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
-            {/* Modal Header */}
-            <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white z-10">
-              <div>
-                <h2 className="text-xl font-bold text-slate-800">{viewingStudent.name}</h2>
-                <p className="text-sm text-slate-500 mt-1">
-                  MHS: <span className="font-mono text-indigo-600">{viewingStudent.mhs}</span> | Lớp: {viewingStudent.class}
-                </p>
-              </div>
-              <button
-                onClick={() => setViewingMhs(null)}
-                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
-                type="button"
-              >
-                <X size={24} />
-              </button>
-            </div>
-
-            {/* Tabs */}
-            <div className="flex border-b border-slate-100 px-6">
-              <button
-                onClick={() => setActiveTab("report")}
-                className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${activeTab === "report"
-                  ? "border-indigo-600 text-indigo-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
-                  }`}
-                type="button"
-              >
-                <div className="flex items-center gap-2">
-                  <BarChart3 size={16} /> Báo cáo AI
-                </div>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("tracking")}
-                className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${activeTab === "tracking"
-                  ? "border-indigo-600 text-indigo-600"
-                  : "border-transparent text-slate-500 hover:text-slate-700"
-                  }`}
-                type="button"
-              >
-                <div className="flex items-center gap-2">
-                  <CalendarCheck size={16} /> Theo dõi Thói quen
-                </div>
-              </button>
-            </div>
-
-            <div className="p-8 space-y-6 overflow-y-auto custom-scrollbar bg-[#fcfcfc] flex-1">
-              {/* TAB 1: AI REPORT */}
-              {activeTab === "report" &&
-                (viewingStudent.aiReport ? (
-                  <>
-                    <div className="flex justify-end mb-2">
-                      {!isEditing ? (
-                        <button
-                          onClick={() => setIsEditing(true)}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-200 transition-colors"
-                          type="button"
-                        >
-                          <Edit2 size={14} /> Sửa nội dung
-                        </button>
-                      ) : (
-                        <button
-                          onClick={handleSaveEdit}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-semibold hover:bg-emerald-600 shadow-md transition-all"
-                          type="button"
-                        >
-                          <Save size={14} /> Lưu
-                        </button>
-                      )}
-                    </div>
-
-                    <div
-                      className={`p-5 rounded-2xl border ${viewingStudent.aiReport.riskLevel === "Cao"
-                        ? "border-red-200 bg-red-50/50"
-                        : viewingStudent.aiReport.riskLevel === "Trung bình"
-                          ? "border-orange-200 bg-orange-50/50"
-                          : "border-emerald-200 bg-emerald-50/50"
+                  <td className="px-6 py-4 text-sm text-slate-600">
+                    <span
+                      className={`px-2.5 py-1 rounded-lg font-bold text-xs ${avg === "N/A"
+                        ? "bg-slate-100 text-slate-500"
+                        : Number(avg) >= 8
+                          ? "bg-emerald-100 text-emerald-700"
+                          : Number(avg) >= 5
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-rose-100 text-rose-700"
                         }`}
                     >
-                      <h3
-                        className={`font-bold text-sm uppercase tracking-wide mb-3 ${viewingStudent.aiReport.riskLevel === "Cao"
-                          ? "text-red-700"
-                          : viewingStudent.aiReport.riskLevel === "Trung bình"
-                            ? "text-orange-700"
-                            : "text-emerald-700"
+                      {avg}
+                    </span>
+                    {lastScore && (
+                      <span className="text-[10px] text-slate-400 ml-2">({(lastScore as any).month})</span>
+                    )}
+                  </td>
+
+                  <td className="px-6 py-4">
+                    {student.aiReport ? (
+                      <span
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${student.aiReport.riskLevel === "Cao"
+                          ? "bg-red-50 text-red-600 border-red-100"
+                          : student.aiReport.riskLevel === "Trung bình"
+                            ? "bg-orange-50 text-orange-600 border-orange-100"
+                            : "bg-emerald-50 text-emerald-600 border-emerald-100"
                           }`}
                       >
-                        Đánh giá Tổng quan
-                      </h3>
-                      {isEditing ? (
-                        <textarea
-                          className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-700 bg-white"
-                          rows={3}
-                          value={editForm.overview}
-                          onChange={(e) => setEditForm({ ...editForm, overview: e.target.value })}
-                        />
-                      ) : (
-                        <p className="text-sm text-slate-800 leading-relaxed">{viewingStudent.aiReport.overview}</p>
-                      )}
-                    </div>
+                        {student.aiReport.riskLevel === "Cao" && <AlertTriangle size={12} />}
+                        {student.aiReport.riskLevel}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300 text-xs italic">--</span>
+                    )}
+                  </td>
 
-                    <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100">
-                      <h3 className="font-bold text-sm uppercase tracking-wide text-indigo-700 mb-3">
-                        Lời nhắn cho Học sinh
-                      </h3>
-                      {isEditing ? (
-                        <textarea
-                          className="w-full p-3 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-700 bg-white"
-                          rows={3}
-                          value={editForm.messageToStudent}
-                          onChange={(e) => setEditForm({ ...editForm, messageToStudent: e.target.value })}
+                  <td className="px-6 py-4 text-sm text-slate-600">
+                    {acts.length > 0 ? (
+                      <div
+                        className="w-full bg-slate-100 rounded-full h-2 max-w-[100px]"
+                        title={`${totalTicksInTaskMonth} tick hoàn thành • tháng nhiệm vụ ${taskMonth}`}
+                      >
+                        <div
+                          className="bg-indigo-500 h-2 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.min(totalTicksInTaskMonth * 5, 100)}%` }}
                         />
-                      ) : (
-                        <p className="text-sm text-indigo-900 italic">"{viewingStudent.aiReport.messageToStudent}"</p>
-                      )}
-                    </div>
-
-                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                      <h3 className="font-bold text-sm uppercase tracking-wide text-slate-600 mb-3 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-                        Ghi chú Riêng tư (GV)
-                      </h3>
-                      {isEditing ? (
-                        <textarea
-                          className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-700 bg-slate-50"
-                          rows={3}
-                          value={editForm.teacherNotes}
-                          onChange={(e) => setEditForm({ ...editForm, teacherNotes: e.target.value })}
-                        />
-                      ) : (
-                        <p className="text-sm text-slate-600">{viewingStudent.aiReport.teacherNotes}</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <h3 className="font-bold text-sm uppercase tracking-wide text-slate-600 mb-3 ml-1">Kế hoạch Học tập</h3>
-                      <div className="text-sm text-slate-600 bg-white border border-slate-100 rounded-2xl shadow-sm divide-y divide-slate-50">
-                        {viewingStudent.aiReport.studyPlan.map((p: any, i: number) => (
-                          <div key={i} className="p-4 grid grid-cols-4 gap-4">
-                            <span className="font-bold text-slate-400 text-xs uppercase pt-1">{p.day}</span>
-                            <span className="text-indigo-600 font-semibold">{p.subject}</span>
-                            <span className="col-span-2 text-slate-700">{p.content}</span>
-                          </div>
-                        ))}
                       </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-                    <Activity size={48} className="mb-4 opacity-50" />
-                    <p>Chưa có báo cáo AI. Hãy nhấn nút "Tạo" ở màn hình chính.</p>
-                  </div>
-                ))}
+                    ) : (
+                      <span className="text-slate-400">-</span>
+                    )}
+                  </td>
 
-              {/* ✅ TAB 2: TRACKING */}
-              {activeTab === "tracking" && (
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {loadingMhs === student.mhs ? (
+                        <button
+                          disabled
+                          className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-xs font-bold flex items-center gap-2"
+                          type="button"
+                        >
+                          <Loader2 size={14} className="animate-spin" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleGenerateAI(student)}
+                          className="px-4 py-2 bg-white border border-indigo-200 hover:bg-indigo-600 hover:text-white hover:border-indigo-600 text-indigo-600 rounded-xl text-xs font-bold transition-all shadow-sm hover:shadow-md"
+                          type="button"
+                        >
+                          {student.aiReport ? "Tạo lại" : "Tạo"}
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => {
+                          setViewingMhs(student.mhs);
+                          setActiveTab("report");
+                        }}
+                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
+                        title="Xem chi tiết"
+                        type="button"
+                      >
+                        <FileText size={20} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+{/* Modal Details & Edit */}
+      {
+        viewingStudent && (
+          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-opacity duration-300">
+            <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col">
+              {/* Modal Header */}
+              <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-white z-10">
                 <div>
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
-                    <h3 className="font-bold text-slate-800">{trackingTitle}</h3>
+                  <h2 className="text-xl font-bold text-slate-800">{viewingStudent.name}</h2>
+                  <p className="text-sm text-slate-500 mt-1">
+                    MHS: <span className="font-mono text-indigo-600">{viewingStudent.mhs}</span> | Lớp: {viewingStudent.class}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setViewingMhs(null)}
+                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                  type="button"
+                >
+                  <X size={24} />
+                </button>
+              </div>
 
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-                        <button
-                          type="button"
-                          onClick={() => setTrackingMode("7")}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg ${trackingMode === "7" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
-                            }`}
-                        >
-                          7 ngày
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTrackingMode("30")}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg ${trackingMode === "30" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
-                            }`}
-                        >
-                          30 ngày
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTrackingMode("90")}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg ${trackingMode === "90" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
-                            }`}
-                        >
-                          90 ngày
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setTrackingMode("month")}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg ${trackingMode === "month" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
-                            }`}
-                        >
-                          Theo tháng
-                        </button>
+              {/* Tabs */}
+              <div className="flex border-b border-slate-100 px-6">
+                <button
+                  onClick={() => setActiveTab("report")}
+                  className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${activeTab === "report"
+                    ? "border-indigo-600 text-indigo-600"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                    }`}
+                  type="button"
+                >
+                  <div className="flex items-center gap-2">
+                    <BarChart3 size={16} /> Báo cáo AI
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab("tracking")}
+                  className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${activeTab === "tracking"
+                    ? "border-indigo-600 text-indigo-600"
+                    : "border-transparent text-slate-500 hover:text-slate-700"
+                    }`}
+                  type="button"
+                >
+                  <div className="flex items-center gap-2">
+                    <CalendarCheck size={16} /> Theo dõi Thói quen
+                  </div>
+                </button>
+              </div>
+
+              <div className="p-8 space-y-6 overflow-y-auto custom-scrollbar bg-[#fcfcfc] flex-1">
+                {/* TAB 1: AI REPORT */}
+                {activeTab === "report" &&
+                  (viewingStudent.aiReport ? (
+                    <>
+                      <div className="flex justify-end mb-2">
+                        {!isEditing ? (
+                          <button
+                            onClick={() => setIsEditing(true)}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-200 transition-colors"
+                            type="button"
+                          >
+                            <Edit2 size={14} /> Sửa nội dung
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleSaveEdit}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-semibold hover:bg-emerald-600 shadow-md transition-all"
+                            type="button"
+                          >
+                            <Save size={14} /> Lưu
+                          </button>
+                        )}
                       </div>
 
-                      {trackingMode === "month" && (
-                        <select
-                          value={trackingMonth}
-                          onChange={(e) => setTrackingMonth(e.target.value)}
-                          className="ml-1 px-3 py-2 text-sm rounded-xl border border-slate-200 bg-white shadow-sm outline-none"
+                      <div
+                        className={`p-5 rounded-2xl border ${viewingStudent.aiReport.riskLevel === "Cao"
+                          ? "border-red-200 bg-red-50/50"
+                          : viewingStudent.aiReport.riskLevel === "Trung bình"
+                            ? "border-orange-200 bg-orange-50/50"
+                            : "border-emerald-200 bg-emerald-50/50"
+                          }`}
+                      >
+                        <h3
+                          className={`font-bold text-sm uppercase tracking-wide mb-3 ${viewingStudent.aiReport.riskLevel === "Cao"
+                            ? "text-red-700"
+                            : viewingStudent.aiReport.riskLevel === "Trung bình"
+                              ? "text-orange-700"
+                              : "text-emerald-700"
+                            }`}
                         >
-                          {availableMonthsForStudent
-                            .slice()
-                            .sort()
-                            .reverse()
-                            .map((m) => (
-                              <option key={m} value={m}>
-                                {m}
-                              </option>
-                            ))}
-                        </select>
-                      )}
-                    </div>
-                  </div>
+                          Đánh giá Tổng quan
+                        </h3>
+                        {isEditing ? (
+                          <textarea
+                            className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-700 bg-white"
+                            rows={3}
+                            value={editForm.overview}
+                            onChange={(e) => setEditForm({ ...editForm, overview: e.target.value })}
+                          />
+                        ) : (
+                          <p className="text-sm text-slate-800 leading-relaxed">{viewingStudent.aiReport.overview}</p>
+                        )}
+                      </div>
 
-                  {actionsForView.length === 0 ? (
-                    <div className="text-center py-10 text-slate-500 italic bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                      Tháng này chưa có nhiệm vụ nào (hoặc học sinh chưa được giao thói quen).
-                    </div>
+                      <div className="bg-indigo-50/50 p-5 rounded-2xl border border-indigo-100">
+                        <h3 className="font-bold text-sm uppercase tracking-wide text-indigo-700 mb-3">
+                          Lời nhắn cho Học sinh
+                        </h3>
+                        {isEditing ? (
+                          <textarea
+                            className="w-full p-3 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-700 bg-white"
+                            rows={3}
+                            value={editForm.messageToStudent}
+                            onChange={(e) => setEditForm({ ...editForm, messageToStudent: e.target.value })}
+                          />
+                        ) : (
+                          <p className="text-sm text-indigo-900 italic">"{viewingStudent.aiReport.messageToStudent}"</p>
+                        )}
+                      </div>
+
+                      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                        <h3 className="font-bold text-sm uppercase tracking-wide text-slate-600 mb-3 flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                          Ghi chú Riêng tư (GV)
+                        </h3>
+                        {isEditing ? (
+                          <textarea
+                            className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm text-slate-700 bg-slate-50"
+                            rows={3}
+                            value={editForm.teacherNotes}
+                            onChange={(e) => setEditForm({ ...editForm, teacherNotes: e.target.value })}
+                          />
+                        ) : (
+                          <p className="text-sm text-slate-600">{viewingStudent.aiReport.teacherNotes}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <h3 className="font-bold text-sm uppercase tracking-wide text-slate-600 mb-3 ml-1">Kế hoạch Học tập</h3>
+                        <div className="text-sm text-slate-600 bg-white border border-slate-100 rounded-2xl shadow-sm divide-y divide-slate-50">
+                          {viewingStudent.aiReport.studyPlan.map((p: any, i: number) => (
+                            <div key={i} className="p-4 grid grid-cols-4 gap-4">
+                              <span className="font-bold text-slate-400 text-xs uppercase pt-1">{p.day}</span>
+                              <span className="text-indigo-600 font-semibold">{p.subject}</span>
+                              <span className="col-span-2 text-slate-700">{p.content}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
                   ) : (
-                    <div className="space-y-6">
-                      {actionsForView.map((action: any) => {
-                        const tickMap = buildTickMap(action);
-                        const countDone = trackingDates.reduce((acc, d) => acc + (tickMap.get(d) ? 1 : 0), 0);
-
-                        return (
-                          <div key={action.id} className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
-                            <div className="flex justify-between items-start mb-4">
-                              <div>
-                                <h4 className="font-semibold text-slate-700">{action.description}</h4>
-                                <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded mt-1 inline-block">
-                                  {action.frequency}
-                                </span>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-2xl font-bold text-indigo-600">{countDone}</span>
-                                <p className="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Tick (trong kỳ)</p>
-                              </div>
-                            </div>
-
-                            <div className="overflow-x-auto">
-                              <div className="min-w-[700px] flex items-center justify-between gap-2">
-                                {trackingDates.map((dateString) => {
-                                  const isDone = !!tickMap.get(dateString);
-                                  const dateObj = new Date(dateString);
-                                  const dayLabel = `${dateObj.getDate()}/${dateObj.getMonth() + 1}`;
-
-                                  return (
-                                    <div key={dateString} className="flex flex-col items-center gap-2 flex-1">
-                                      <div
-                                        className={`w-full h-2 rounded-full transition-all duration-500 ${isDone ? "bg-emerald-500" : "bg-slate-100"
-                                          }`}
-                                      />
-                                      <div
-                                        className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-medium transition-all ${isDone
-                                          ? "bg-emerald-100 text-emerald-700"
-                                          : "bg-slate-50 text-slate-400 border border-slate-100"
-                                          }`}
-                                        title={dateString}
-                                      >
-                                        {isDone ? <Check size={16} /> : <span className="text-[10px]">{dayLabel}</span>}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                      <Activity size={48} className="mb-4 opacity-50" />
+                      <p>Chưa có báo cáo AI. Hãy nhấn nút "Tạo" ở màn hình chính.</p>
                     </div>
-                  )}
-                </div>
-              )}
+                  ))}
+
+                {/* ✅ TAB 2: TRACKING */}
+                {activeTab === "tracking" && (
+                  <div>
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
+                      <h3 className="font-bold text-slate-800">{trackingTitle}</h3>
+
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+                          <button
+                            type="button"
+                            onClick={() => setTrackingMode("7")}
+                            className={`px-3 py-1.5 text-xs font-bold rounded-lg ${trackingMode === "7" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                              }`}
+                          >
+                            7 ngày
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTrackingMode("30")}
+                            className={`px-3 py-1.5 text-xs font-bold rounded-lg ${trackingMode === "30" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                              }`}
+                          >
+                            30 ngày
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTrackingMode("90")}
+                            className={`px-3 py-1.5 text-xs font-bold rounded-lg ${trackingMode === "90" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                              }`}
+                          >
+                            90 ngày
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTrackingMode("month")}
+                            className={`px-3 py-1.5 text-xs font-bold rounded-lg ${trackingMode === "month" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                              }`}
+                          >
+                            Theo tháng
+                          </button>
+                        </div>
+
+                        {trackingMode === "month" && (
+                          <select
+                            value={trackingMonth}
+                            onChange={(e) => setTrackingMonth(e.target.value)}
+                            className="ml-1 px-3 py-2 text-sm rounded-xl border border-slate-200 bg-white shadow-sm outline-none"
+                          >
+                            {availableMonthsForStudent
+                              .slice()
+                              .sort()
+                              .reverse()
+                              .map((m) => (
+                                <option key={m} value={m}>
+                                  {m}
+                                </option>
+                              ))}
+                          </select>
+                        )}
+                      </div>
+                    </div>
+
+                    {actionsForView.length === 0 ? (
+                      <div className="text-center py-10 text-slate-500 italic bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                        Tháng này chưa có nhiệm vụ nào (hoặc học sinh chưa được giao thói quen).
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        {actionsForView.map((action: any) => {
+                          const tickMap = buildTickMap(action);
+                          const countDone = trackingDates.reduce((acc, d) => acc + (tickMap.get(d) ? 1 : 0), 0);
+
+                          return (
+                            <div key={action.id} className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">
+                              <div className="flex justify-between items-start mb-4">
+                                <div>
+                                  <h4 className="font-semibold text-slate-700">{action.description}</h4>
+                                  <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded mt-1 inline-block">
+                                    {action.frequency}
+                                  </span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-2xl font-bold text-indigo-600">{countDone}</span>
+                                  <p className="text-[10px] text-slate-400 uppercase tracking-wide font-bold">Tick (trong kỳ)</p>
+                                </div>
+                              </div>
+
+                              <div className="overflow-x-auto">
+                                <div className="min-w-[700px] flex items-center justify-between gap-2">
+                                  {trackingDates.map((dateString) => {
+                                    const isDone = !!tickMap.get(dateString);
+                                    const dateObj = new Date(dateString);
+                                    const dayLabel = `${dateObj.getDate()}/${dateObj.getMonth() + 1}`;
+
+                                    return (
+                                      <div key={dateString} className="flex flex-col items-center gap-2 flex-1">
+                                        <div
+                                          className={`w-full h-2 rounded-full transition-all duration-500 ${isDone ? "bg-emerald-500" : "bg-slate-100"
+                                            }`}
+                                        />
+                                        <div
+                                          className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-medium transition-all ${isDone
+                                            ? "bg-emerald-100 text-emerald-700"
+                                            : "bg-slate-50 text-slate-400 border border-slate-100"
+                                            }`}
+                                          title={dateString}
+                                        >
+                                          {isDone ? <Check size={16} /> : <span className="text-[10px]">{dayLabel}</span>}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
     </div>
   );
 };

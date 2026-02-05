@@ -86,6 +86,7 @@ export interface StudentDashboardStats {
   classAvg: number;
   gradeAvg: number;
   targetScore: number;
-  leaderboardClass: LeaderboardItem[];
-  leaderboardGrade: LeaderboardItem[];
+  // Key: "YYYY-MM" -> List
+  leaderboardClass: Record<string, LeaderboardItem[]>;
+  leaderboardGrade: Record<string, LeaderboardItem[]>;
 }

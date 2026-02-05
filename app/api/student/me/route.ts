@@ -17,16 +17,29 @@ export async function GET() {
   if (!student) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // ====== STATS CALCULATION (Server-Side) ======
-  // 1. Helpers
+  // Helpers
   const isoMonth = (d: Date) => d.toISOString().slice(0, 7);
-  const currentMonthKey = isoMonth(new Date());
+  const now = new Date();
+
+  // Calculate specific months relevant to user data
+  // Instead of just NOW, let's scan the student's own data to find "active months" 
+  // OR just defaults to Now + last 5 months.
+  const months = new Set<string>();
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.add(isoMonth(d));
+  }
+  // Also add any months from student scores
+  (student.scores || []).forEach((s: any) => months.add(s.month));
+
+  const monthKeys = Array.from(months).sort().reverse(); // Descending
 
   const getAvg = (s?: any) => {
     if (!s) return 0;
     const m = typeof s.math === "number" ? s.math : 0;
     const l = typeof s.lit === "number" ? s.lit : 0;
     const e = typeof s.eng === "number" ? s.eng : 0;
-    // Đếm số môn có điểm để chia
+    // Count valid subjects
     let count = 0;
     if (typeof s.math === "number") count++;
     if (typeof s.lit === "number") count++;
@@ -37,47 +50,24 @@ export async function GET() {
 
   const getLatestScore = (st: any) => {
     const scores = Array.isArray(st?.scores) ? st.scores : [];
-    // Lấy tháng mới nhất có điểm
     if (!scores.length) return null;
-    return scores[scores.length - 1]; // Assume sorted by import
+    return scores[scores.length - 1];
   };
 
   const taskCountForMonth = (st: any, monthKey: string) => {
-    // Tính tổng tick của tháng chỉ định
-    // logic: lấy actions của inferredTaskMonth = monthKey (đơn giản hoá: tính tổng tick của user trong tháng này)
-    let total = 0;
-
-    // Check actives
-    const countTicks = (actions: any[]) => {
-      let c = 0;
-      (actions || []).forEach(a => {
-        (a.ticks || []).forEach((t: any) => {
-          if (t.completed && String(t.date).startsWith(monthKey)) c++;
-        });
-      });
-      return c;
-    };
-
-    // check actionsByMonth
-    const abm = st.actionsByMonth || {};
-    // Chỉ đếm task "đang chạy" (thường là trong tháng task tương ứng)
-    // Nhưng để leaderboard vui, ta đếm ALL ticks fall into this month
-    // Duyệt qua mọi actions (vì action tháng cũ có thể tick bù vào tháng này?) -> No, tick date is key.
+    const uniqueTickDates = new Set<string>();
 
     const allActions: any[] = [];
     if (Array.isArray(st.activeActions)) allActions.push(...st.activeActions);
+    const abm = st.actionsByMonth || {};
     Object.values(abm).forEach((list: any) => {
       if (Array.isArray(list)) allActions.push(...list);
     });
 
-    // De-duplicate actions if needed? Assuming IDs unique enough or just naive count
-    // Optimized:
-    const uniqueTickDates = new Set<string>();
-    // Actually simpler: iterate all actions -> all ticks -> if tick.date startWith monthKey && completed -> count
     allActions.forEach(a => {
       (a.ticks || []).forEach((t: any) => {
         if (t.completed && String(t.date).startsWith(monthKey)) {
-          uniqueTickDates.add(t.date + "-" + a.id); // tick is unique per action+date
+          uniqueTickDates.add(t.date + "-" + a.id);
         }
       });
     });
@@ -85,16 +75,16 @@ export async function GET() {
     return uniqueTickDates.size;
   };
 
-  // 2. Filter Lists
+  // Filter Lists
   const allStudents = Array.isArray(state.students) ? state.students : [];
-  const myClass = student.class || "";
-  // Grade: "8A" -> "8"
-  const myGradeRaw = myClass.replace(/[^0-9]/g, ""); // "8"
+  const myClass = (student.class || "").trim();
+  const myGradeRaw = myClass.replace(/[^0-9]/g, "");
 
-  const classStudents = allStudents.filter((s: any) => s.class === myClass);
-  const gradeStudents = allStudents.filter((s: any) => String(s.class).includes(myGradeRaw));
+  const classStudents = allStudents.filter((s: any) => (s.class || "").trim() === myClass);
+  // Grade logic: same number (e.g. "8")
+  const gradeStudents = allStudents.filter((s: any) => String(s.class || "").includes(myGradeRaw));
 
-  // 3. Calc Scores
+  // Calc Scores
   const myLatest = getLatestScore(student);
   const myAvg = getAvg(myLatest);
 
@@ -124,35 +114,37 @@ export async function GET() {
   });
   const gradeAvg = countGrade ? parseFloat((sumGrade / countGrade).toFixed(1)) : 0;
 
-  // 4. Calc Leaderboard (Task Counts current month)
-  // Sort by taskCount DESC
-  const calcRank = (list: any[]) => {
+  // Calc Leaderboard History
+  const calcRank = (list: any[], mKey: string) => {
     const mapped = list.map(s => ({
       id: s.mhs,
       name: s.name,
       class: s.class,
-      score: taskCountForMonth(s, currentMonthKey)
+      score: taskCountForMonth(s, mKey)
     }));
     mapped.sort((a, b) => b.score - a.score);
     // Top 3
     return mapped.slice(0, 3).map((item, idx) => ({ ...item, rank: idx + 1 }));
   };
 
-  const leaderboardClass = calcRank(classStudents);
-  const leaderboardGrade = calcRank(gradeStudents);
-  // Hide exact names if needed? User asked for leaderboard so names are expected.
-  // We mask mhs.
+  const leaderboardClassMap: Record<string, any[]> = {};
+  const leaderboardGradeMap: Record<string, any[]> = {};
+
+  monthKeys.forEach(mKey => {
+    leaderboardClassMap[mKey] = calcRank(classStudents, mKey);
+    leaderboardGradeMap[mKey] = calcRank(gradeStudents, mKey);
+  });
 
   const finalStudent = {
     ...student,
     dashboardStats: {
       avgScore: myAvg,
-      bestScore: 10, // hardcode or calc
+      bestScore: 10,
       classAvg,
       gradeAvg,
-      targetScore: 8.5, // Default target
-      leaderboardClass,
-      leaderboardGrade
+      targetScore: 8.5,
+      leaderboardClass: leaderboardClassMap,
+      leaderboardGrade: leaderboardGradeMap
     }
   };
 

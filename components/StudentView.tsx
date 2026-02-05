@@ -293,9 +293,10 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
           {/* Leaderboard */}
           <div className="md:col-span-1">
             <Leaderboard
-              leaderboardClass={student.dashboardStats?.leaderboardClass || []}
-              leaderboardGrade={student.dashboardStats?.leaderboardGrade || []}
+              leaderboardClass={student.dashboardStats?.leaderboardClass || {}}
+              leaderboardGrade={student.dashboardStats?.leaderboardGrade || {}}
               currentMhs={student.mhs}
+              month={selectedTaskMonthSafe}
             />
           </div>
         </div>
