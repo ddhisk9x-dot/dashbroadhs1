@@ -106,12 +106,10 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
   const inferredTaskMonth = useMemo(() => nextMonthKey(latestScoreMonthKey(student.scores)), [student.scores]);
 
   // ====== STATE ======
-  const [selectedTaskMonth, setSelectedTaskMonth] = useState<string>(inferredTaskMonth);
-  const [selectedDate, setSelectedDate] = useState<string>(() => {
-    const today = isoDate(new Date());
-    if (today.startsWith(inferredTaskMonth)) return today;
-    return `${inferredTaskMonth}-01`;
-  });
+  // Default to current month so user sees today immediately
+  const [selectedTaskMonth, setSelectedTaskMonth] = useState<string>(() => isoMonth(new Date()));
+
+  const [selectedDate, setSelectedDate] = useState<string>(() => isoDate(new Date()));
 
   // tick long-term
   const [trackingMode, setTrackingMode] = useState<"range" | "month">("range");
@@ -340,8 +338,8 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
               <button
                 onClick={() => setTrackingMode("range")}
                 className={`px-3 py-2 rounded-xl text-sm font-semibold border ${trackingMode === "range"
-                    ? "bg-indigo-600 text-white border-indigo-600"
-                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                  ? "bg-indigo-600 text-white border-indigo-600"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
                   }`}
               >
                 7/30/90 ngày
@@ -349,8 +347,8 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
               <button
                 onClick={() => setTrackingMode("month")}
                 className={`px-3 py-2 rounded-xl text-sm font-semibold border ${trackingMode === "month"
-                    ? "bg-indigo-600 text-white border-indigo-600"
-                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                  ? "bg-indigo-600 text-white border-indigo-600"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
                   }`}
               >
                 Theo tháng
@@ -363,8 +361,8 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                       key={n}
                       onClick={() => setRangeDays(n as 7 | 30 | 90)}
                       className={`px-3 py-2 rounded-xl text-sm font-semibold border ${rangeDays === n
-                          ? "bg-emerald-600 text-white border-emerald-600"
-                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                        ? "bg-emerald-600 text-white border-emerald-600"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
                         }`}
                     >
                       {n} ngày
@@ -409,8 +407,8 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                                 await onUpdateAction(action.id, dateStr, !done);
                               }}
                               className={`w-10 h-10 rounded-xl border flex items-center justify-center text-xs font-semibold transition ${done
-                                  ? "bg-emerald-100 text-emerald-700 border-emerald-200"
-                                  : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
+                                ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+                                : "bg-white text-slate-400 border-slate-200 hover:bg-slate-50"
                                 }`}
                               title={dateStr}
                             >
