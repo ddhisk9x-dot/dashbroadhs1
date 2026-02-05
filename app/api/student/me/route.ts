@@ -57,14 +57,17 @@ export async function GET() {
   const taskCountForMonth = (st: any, monthKey: string) => {
     const uniqueTickDates = new Set<string>();
 
-    const allActions: any[] = [];
-    if (Array.isArray(st.activeActions)) allActions.push(...st.activeActions);
+    let actions: any[] = [];
     const abm = st.actionsByMonth || {};
-    Object.values(abm).forEach((list: any) => {
-      if (Array.isArray(list)) allActions.push(...list);
-    });
 
-    allActions.forEach(a => {
+    // Priority: Specific month list -> Legacy activeActions
+    if (abm[monthKey] && Array.isArray(abm[monthKey]) && abm[monthKey].length > 0) {
+      actions = abm[monthKey];
+    } else if (Array.isArray(st.activeActions)) {
+      actions = st.activeActions;
+    }
+
+    actions.forEach(a => {
       (a.ticks || []).forEach((t: any) => {
         if (t.completed && String(t.date).startsWith(monthKey)) {
           uniqueTickDates.add(t.date + "-" + a.id);
