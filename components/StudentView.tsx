@@ -299,21 +299,81 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
           risksText={risksText}
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Chart */}
-          <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <div className="text-sm font-bold text-slate-800 mb-4">Biểu đồ Học tập</div>
-            <ScoreChart data={chartData} stats={student.dashboardStats} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* LEFT COLUMN: CHARTS */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <span className="w-2 h-5 bg-blue-500 rounded-full"></span>
+                Biểu đồ Toán
+              </div>
+              <ScoreChart data={chartData} stats={student.dashboardStats} subject="math" />
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <span className="w-2 h-5 bg-pink-500 rounded-full"></span>
+                Biểu đồ Văn
+              </div>
+              <ScoreChart data={chartData} stats={student.dashboardStats} subject="lit" />
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <span className="w-2 h-5 bg-violet-500 rounded-full"></span>
+                Biểu đồ Anh
+              </div>
+              <ScoreChart data={chartData} stats={student.dashboardStats} subject="eng" />
+            </div>
+
+            {/* Daily Actions (moved here or keep in flow? User didn't specify, but left col seems busy. Let's keep actions here too? Or maybe only charts.
+               Actually user said "cân bằng biểu đồ 3 môn theo hàng dọc", likely means charts occupy left, sidebar occupies right.
+               The Daily Actions block (Tracking) was separate. I'll leave it below charts or above? 
+               Usually Daily Actions is main interactive part. Move it to TOP of left column? 
+               User asked to balance charts. 3 vertical charts = tall. 
+               The original layout: Overview -> Charts -> Leaderboard.
+               I'll put Daily Actions ABOVE charts in the left column.
+            */}
           </div>
 
-          {/* Leaderboard */}
-          <div className="md:col-span-1">
+          {/* RIGHT COLUMN: SIDEBAR */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* Leaderboard */}
             <Leaderboard
               leaderboardClass={student.dashboardStats?.leaderboardClass || {}}
               leaderboardGrade={student.dashboardStats?.leaderboardGrade || {}}
               currentMhs={student.mhs}
               month={selectedTaskMonthSafe}
             />
+
+            {/* Study Plan (Moved) */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="text-sm font-bold text-slate-800 mb-4">Kế hoạch 2 Tuần tới</div>
+              {!ai?.studyPlan?.length ? (
+                <div className="text-sm text-slate-400 italic py-6 text-center">Chưa có kế hoạch.</div>
+              ) : (
+                <div className="space-y-4">
+                  {planByDay.map(([day, items]) => (
+                    <div key={day} className="space-y-2">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-1">{day}</div>
+                      <div className="space-y-2">
+                        {items.map((p, idx) => (
+                          <div key={idx} className="bg-slate-50/50 rounded-lg p-3 border border-slate-100/50">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600">
+                                {p.subject}
+                              </span>
+                              <span className="text-[10px] text-slate-400">{p.duration}</span>
+                            </div>
+                            <div className="text-xs font-medium text-slate-700 leading-snug">{p.content}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <StudentChangePassword />
           </div>
         </div>
 

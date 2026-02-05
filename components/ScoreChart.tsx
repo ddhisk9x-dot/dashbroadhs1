@@ -4,18 +4,26 @@ import { ScoreData, StudentDashboardStats } from '../types';
 interface ScoreChartProps {
   data: ScoreData[];
   stats?: StudentDashboardStats;
+  subject?: 'math' | 'lit' | 'eng';
 }
 
-const ScoreChart: React.FC<ScoreChartProps> = ({ data, stats }) => {
+const ScoreChart: React.FC<ScoreChartProps> = ({ data, stats, subject }) => {
+  // Filter lines based on subject
+  const showMath = !subject || subject === 'math';
+  const showLit = !subject || subject === 'lit';
+  const showEng = !subject || subject === 'eng';
+
   return (
     <div className="h-96 w-full bg-white p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100/50 transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-          <span className="w-2 h-6 bg-indigo-500 rounded-full inline-block"></span>
-          Biểu đồ Học tập
-        </h3>
-      </div>
-      <ResponsiveContainer width="100%" height="85%">
+      {!subject && (
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <span className="w-2 h-6 bg-indigo-500 rounded-full inline-block"></span>
+            Biểu đồ Học tập
+          </h3>
+        </div>
+      )}
+      <ResponsiveContainer width="100%" height={subject ? "100%" : "85%"}>
         <LineChart
           data={data}
           margin={{
@@ -55,13 +63,13 @@ const ScoreChart: React.FC<ScoreChartProps> = ({ data, stats }) => {
           />
           <Legend wrapperStyle={{ paddingTop: '20px' }} />
 
-          <Line connectNulls={false} type="monotone" dataKey="math" name="Toán" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 7, strokeWidth: 0 }} />
-          <Line connectNulls={false} type="monotone" dataKey="lit" name="Văn" stroke="#ec4899" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 7, strokeWidth: 0 }} />
-          <Line connectNulls={false} type="monotone" dataKey="eng" name="Anh" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 7, strokeWidth: 0 }} />
+          {showMath && <Line connectNulls={false} type="monotone" dataKey="math" name="Toán" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 7, strokeWidth: 0 }} />}
+          {showLit && <Line connectNulls={false} type="monotone" dataKey="lit" name="Văn" stroke="#ec4899" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 7, strokeWidth: 0 }} />}
+          {showEng && <Line connectNulls={false} type="monotone" dataKey="eng" name="Anh" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 7, strokeWidth: 0 }} />}
 
-          <Line connectNulls={false} type="monotone" dataKey="gradeMath" name="TB Khối Toán" stroke="#3b82f6" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-          <Line connectNulls={false} type="monotone" dataKey="gradeLit" name="TB Khối Văn" stroke="#ec4899" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-          <Line connectNulls={false} type="monotone" dataKey="gradeEng" name="TB Khối Anh" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+          {showMath && <Line connectNulls={false} type="monotone" dataKey="gradeMath" name="TB Khối Toán" stroke="#3b82f6" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />}
+          {showLit && <Line connectNulls={false} type="monotone" dataKey="gradeLit" name="TB Khối Văn" stroke="#ec4899" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />}
+          {showEng && <Line connectNulls={false} type="monotone" dataKey="gradeEng" name="TB Khối Anh" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />}
 
         </LineChart>
       </ResponsiveContainer>
