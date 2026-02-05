@@ -148,16 +148,15 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
     }
   }, [selectedTaskMonthSafe]);
 
-  // Force-check on mount: if today is valid but not selected, select it.
+  // Force-check on mount: ALWAYS select today/current month
   useEffect(() => {
-    const today = isoDate(new Date());
-    const curM = isoMonth(new Date());
-    if (monthKeys.includes(curM) && selectedTaskMonth !== curM) {
-      setSelectedTaskMonth(curM);
-    }
-    if (today.startsWith(curM) && selectedDate !== today) {
-      setSelectedDate(today);
-    }
+    const now = new Date();
+    const curM = isoMonth(now);
+    const today = isoDate(now);
+
+    // Force update state to current time
+    setSelectedTaskMonth(curM);
+    setSelectedDate(today);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
