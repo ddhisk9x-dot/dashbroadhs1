@@ -344,6 +344,16 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
               month={selectedTaskMonthSafe}
             />
 
+            {/* Message (Moved) */}
+            <div className="rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white p-5 shadow-sm">
+              <div className="text-sm font-bold mb-2">✨ Lời nhắn từ AI Mentor</div>
+              <div className="text-sm italic">“{ai?.messageToStudent || "Mỗi ngày tiến bộ 1 chút là đủ."}”</div>
+              <div className="text-[10px] text-white/60 mt-4 uppercase tracking-wider">DISCLAIMER:</div>
+              <div className="text-[11px] text-white/70">
+                {ai?.disclaimer || "Nhận xét AI chỉ mang tính tham khảo, giáo viên sẽ điều chỉnh theo thực tế."}
+              </div>
+            </div>
+
             {/* Study Plan (Moved) */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
               <div className="text-sm font-bold text-slate-800 mb-4">Kế hoạch 2 Tuần tới</div>
@@ -535,48 +545,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
           )}
         </div>
 
-        {/* Study plan */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-          <div className="text-sm font-bold text-slate-800 mb-4">Kế hoạch 2 Tuần tới</div>
 
-          {!ai?.studyPlan?.length ? (
-            <div className="text-sm text-slate-400 italic py-6 text-center">Chưa có kế hoạch.</div>
-          ) : (
-            <div className="space-y-4">
-              {planByDay.map(([day, items]) => (
-                <div key={day} className="grid md:grid-cols-5 gap-3">
-                  <div className="text-xs font-bold text-slate-400 uppercase md:pt-3">{day}</div>
-                  <div className="md:col-span-4 space-y-3">
-                    {items.map((p, idx) => (
-                      <div key={idx} className="rounded-2xl border border-slate-200 bg-slate-50/40 p-4">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-600">
-                            {p.subject}
-                          </span>
-                          <span className="text-xs text-slate-500">{p.duration}</span>
-                        </div>
-                        <div className="text-sm font-semibold text-slate-800">{p.content}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Change password */}
-        <StudentChangePassword />
-
-        {/* Message */}
-        <div className="rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white p-5 shadow-sm">
-          <div className="text-sm font-bold mb-2">✨ Lời nhắn từ AI Mentor</div>
-          <div className="text-sm italic">“{ai?.messageToStudent || "Mỗi ngày tiến bộ 1 chút là đủ."}”</div>
-          <div className="text-[10px] text-white/60 mt-4 uppercase tracking-wider">DISCLAIMER:</div>
-          <div className="text-[11px] text-white/70">
-            {ai?.disclaimer || "Nhận xét AI chỉ mang tính tham khảo, giáo viên sẽ điều chỉnh theo thực tế."}
-          </div>
-        </div>
       </div>
     </div>
   );
