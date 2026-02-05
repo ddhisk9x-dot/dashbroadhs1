@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "functions": {
+    "/api/account/admin/confirm-reset": {},
+    "/api/account/admin/change-password": {},
+    "/api/account/admin/request-reset": {},
+    "/api/account/change-password": {},
+    "/api/admin/save-students": {},
+    "/api/account/reset-password": {},
+    "/api/admin/get-students": {},
+    "/api/logout": {},
+    "/api/admin/save-report": {},
+    "/api/me": {},
+    "/api/login": {},
+    "/api/student/me": {},
+    "/api/student/tick": {},
+    "/api/sync/sheets": {},
+    "/api/ai/generate-report": {}
+  }
+}
