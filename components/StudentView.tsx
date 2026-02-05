@@ -354,9 +354,18 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 border-l-4 border-l-amber-500">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="p-1.5 bg-amber-50 rounded-lg text-amber-600">
-                    <Trophy size={16} />
+                    <Target size={16} />
                   </div>
-                  <div className="text-sm font-bold text-slate-800">Mục tiêu đợt thi sau</div>
+                  <div className="text-sm font-bold text-slate-800">
+                    {(() => {
+                      const latest = [...(student.scores || [])].sort((a, b) => String(b.month).localeCompare(String(a.month)))[0];
+                      if (!latest) return "Mục tiêu đợt tới";
+                      const [y, m] = latest.month.split("-").map(Number);
+                      const nextM = m === 12 ? 1 : m + 1;
+                      const nextY = m === 12 ? y + 1 : y;
+                      return `Mục tiêu đợt tới (Tháng ${nextM < 10 ? '0' + nextM : nextM}/${nextY})`;
+                    })()}
+                  </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mb-3">
                   <div className="bg-slate-50 rounded-xl p-2 text-center">
