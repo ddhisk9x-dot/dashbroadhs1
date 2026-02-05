@@ -78,11 +78,11 @@ export async function GET() {
   // Filter Lists
   const allStudents = Array.isArray(state.students) ? state.students : [];
   const myClass = (student.class || "").trim();
-  const myGradeRaw = myClass.replace(/[^0-9]/g, "");
+  const myGradeRaw = myClass.match(/^\d+/)?.[0] || "";
 
   const classStudents = allStudents.filter((s: any) => (s.class || "").trim() === myClass);
-  // Grade logic: same number (e.g. "8")
-  const gradeStudents = allStudents.filter((s: any) => String(s.class || "").includes(myGradeRaw));
+  // Grade logic: starts with same number (e.g. "8")
+  const gradeStudents = allStudents.filter((s: any) => (myGradeRaw && String(s.class || "").startsWith(myGradeRaw)));
 
   // Calc Scores
   const myLatest = getLatestScore(student);
@@ -135,23 +135,38 @@ export async function GET() {
     leaderboardGradeMap[mKey] = calcRank(gradeStudents, mKey);
   });
 
-  // Calc Grade Avg By Month (for Chart)
-  const gradeScoresMap: Record<string, { total: number; count: number }> = {};
+  // Calc Grade Avg By Subject Per Month
+  const gradeSubjectMap: Record<string, {
+    math: { total: number; count: number };
+    lit: { total: number; count: number };
+    eng: { total: number; count: number };
+  }> = {};
+
   gradeStudents.forEach((s: any) => {
     (s.scores || []).forEach((sc: any) => {
-      const avg = getAvg(sc);
-      if (avg > 0 && sc.month) {
-        if (!gradeScoresMap[sc.month]) gradeScoresMap[sc.month] = { total: 0, count: 0 };
-        gradeScoresMap[sc.month].total += avg;
-        gradeScoresMap[sc.month].count++;
+      if (!sc.month) return;
+      if (!gradeSubjectMap[sc.month]) {
+        gradeSubjectMap[sc.month] = {
+          math: { total: 0, count: 0 },
+          lit: { total: 0, count: 0 },
+          eng: { total: 0, count: 0 }
+        };
       }
+      const entry = gradeSubjectMap[sc.month];
+      if (typeof sc.math === 'number') { entry.math.total += sc.math; entry.math.count++; }
+      if (typeof sc.lit === 'number') { entry.lit.total += sc.lit; entry.lit.count++; }
+      if (typeof sc.eng === 'number') { entry.eng.total += sc.eng; entry.eng.count++; }
     });
   });
 
-  const gradeAvgByMonth: Record<string, number> = {};
-  Object.keys(gradeScoresMap).forEach(m => {
-    const { total, count } = gradeScoresMap[m];
-    gradeAvgByMonth[m] = count ? parseFloat((total / count).toFixed(1)) : 0;
+  const gradeAvgSubjectsByMonth: Record<string, { math: number; lit: number; eng: number }> = {};
+  Object.keys(gradeSubjectMap).forEach(m => {
+    const e = gradeSubjectMap[m];
+    gradeAvgSubjectsByMonth[m] = {
+      math: e.math.count ? parseFloat((e.math.total / e.math.count).toFixed(1)) : 0,
+      lit: e.lit.count ? parseFloat((e.lit.total / e.lit.count).toFixed(1)) : 0,
+      eng: e.eng.count ? parseFloat((e.eng.total / e.eng.count).toFixed(1)) : 0,
+    };
   });
 
   const finalStudent = {
@@ -164,7 +179,7 @@ export async function GET() {
       targetScore: 8.5,
       leaderboardClass: leaderboardClassMap,
       leaderboardGrade: leaderboardGradeMap,
-      gradeAvgByMonth // ✅ New field
+      gradeAvgSubjectsByMonth // ✅ New field
     }
   };
 

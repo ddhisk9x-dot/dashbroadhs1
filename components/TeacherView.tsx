@@ -1430,8 +1430,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                         targetScore: 0,
                         leaderboardClass: {},
                         leaderboardGrade: {},
-                        classAvgByMonth: {},
-                        gradeAvgByMonth: {}
+                        gradeAvgSubjectsByMonth: {}
                       }}
                     />
                   </div>
