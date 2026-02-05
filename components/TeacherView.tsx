@@ -1511,6 +1511,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               </div>
             </div>
           </div>
+        )}
     </div>
   );
 };
