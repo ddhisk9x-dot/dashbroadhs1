@@ -1395,31 +1395,39 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                   <div className="p-4">
                     <ScoreChart
                       data={(() => {
-                        // Calculate grade avg per month
-                        // 1. Collect all scores from all students
-                        const gradeScoresByMonth: Record<string, { total: number, count: number }> = {};
+                        // Calculate grade avg subjects per month
+                        const gradeSubjectMap: Record<string, {
+                          math: { total: number; count: number };
+                          lit: { total: number; count: number };
+                          eng: { total: number; count: number };
+                        }> = {};
 
+                        // 1. Collect all scores
                         students.forEach(s => {
                           (s.scores || []).forEach(sc => {
                             if (!sc.month) return;
-                            // Average of student's subjects
-                            const valid = [sc.math, sc.lit, sc.eng].filter(x => x !== null && x !== undefined) as number[];
-                            if (valid.length === 0) return;
-                            const sAvg = valid.reduce((a, b) => a + b, 0) / valid.length;
-
-                            if (!gradeScoresByMonth[sc.month]) gradeScoresByMonth[sc.month] = { total: 0, count: 0 };
-                            gradeScoresByMonth[sc.month].total += sAvg;
-                            gradeScoresByMonth[sc.month].count += 1;
+                            if (!gradeSubjectMap[sc.month]) {
+                              gradeSubjectMap[sc.month] = {
+                                math: { total: 0, count: 0 },
+                                lit: { total: 0, count: 0 },
+                                eng: { total: 0, count: 0 }
+                              };
+                            }
+                            const entry = gradeSubjectMap[sc.month];
+                            if (typeof sc.math === 'number') { entry.math.total += sc.math; entry.math.count++; }
+                            if (typeof sc.lit === 'number') { entry.lit.total += sc.lit; entry.lit.count++; }
+                            if (typeof sc.eng === 'number') { entry.eng.total += sc.eng; entry.eng.count++; }
                           });
                         });
 
-                        // 2. Merge with student scores
+                        // 2. Merge with viewingStudent scores
                         return (viewingStudent.scores || []).map(sc => {
-                          const g = gradeScoresByMonth[sc.month];
-                          const gAvg = g ? (g.total / g.count) : 0;
+                          const g = gradeSubjectMap[sc.month];
                           return {
                             ...sc,
-                            gradeAvg: Number(gAvg.toFixed(1))
+                            gradeMath: g?.math?.count ? parseFloat((g.math.total / g.math.count).toFixed(1)) : 0,
+                            gradeLit: g?.lit?.count ? parseFloat((g.lit.total / g.lit.count).toFixed(1)) : 0,
+                            gradeEng: g?.eng?.count ? parseFloat((g.eng.total / g.eng.count).toFixed(1)) : 0,
                           };
                         });
                       })()}
