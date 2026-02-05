@@ -23,6 +23,7 @@ import {
   Trophy,
   Award,
   Medal,
+  ArrowUpDown,
 } from "lucide-react";
 
 declare const XLSX: any;
@@ -902,14 +903,15 @@ const TeacherView: React.FC<TeacherViewProps> = ({
           <div className="relative">
             <select
               className="pl-3 pr-8 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white outline-none text-sm appearance-none cursor-pointer"
-              value={filterClass}
-              onChange={(e) => setFilterClass(e.target.value)}
+              value={sortTicks}
+              onChange={(e) => setSortTicks(e.target.value as any)}
             >
-              <option value="ALL">Tất cả lớp</option>
-              {uniqueClasses.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value="none">Sắp xếp: Mặc định</option>
+              <option value="desc">Tick nhiều nhất</option>
+              <option value="asc">Tick ít nhất</option>
             </select>
             <div className="absolute right-3 top-2.5 pointer-events-none text-slate-400">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              <ArrowUpDown size={14} />
             </div>
           </div>
 
