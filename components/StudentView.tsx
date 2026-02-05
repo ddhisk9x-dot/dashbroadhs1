@@ -264,13 +264,18 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
   const chartData = useMemo(() => {
     const scores = student.scores || [];
     const gradeMap = student.dashboardStats?.gradeAvgSubjectsByMonth || {};
+    const targetMap = student.dashboardStats?.subjectTargets || {};
     return scores.map(s => {
       const g = gradeMap[s.month] || {};
+      const t = targetMap[s.month] || {};
       return {
         ...s,
         gradeMath: g.math || 0,
         gradeLit: g.lit || 0,
-        gradeEng: g.eng || 0
+        gradeEng: g.eng || 0,
+        targetMath: t.math || 0,
+        targetLit: t.lit || 0,
+        targetEng: t.eng || 0
       };
     });
   }, [student.scores, student.dashboardStats]);
