@@ -1389,6 +1389,47 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                     </div>
                   ))}
 
+                {/* ✅ TAB 3: SCORE CHART */}
+                {activeTab === "score" && viewingStudent && (
+                  <div className="p-4">
+                    <ScoreChart
+                      data={(() => {
+                        // Calculate grade avg per month
+                        // 1. Collect all scores from all students
+                        const gradeScoresByMonth: Record<string, { total: number, count: number }> = {};
+
+                        students.forEach(s => {
+                          (s.scores || []).forEach(sc => {
+                            if (!sc.month) return;
+                            // Average of student's subjects
+                            const valid = [sc.math, sc.lit, sc.eng].filter(x => x !== null && x !== undefined) as number[];
+                            if (valid.length === 0) return;
+                            const sAvg = valid.reduce((a, b) => a + b, 0) / valid.length;
+
+                            if (!gradeScoresByMonth[sc.month]) gradeScoresByMonth[sc.month] = { total: 0, count: 0 };
+                            gradeScoresByMonth[sc.month].total += sAvg;
+                            gradeScoresByMonth[sc.month].count += 1;
+                          });
+                        });
+
+                        // 2. Merge with student scores
+                        return (viewingStudent.scores || []).map(sc => {
+                          const g = gradeScoresByMonth[sc.month];
+                          const gAvg = g ? (g.total / g.count) : 0;
+                          return {
+                            ...sc,
+                            gradeAvg: Number(gAvg.toFixed(1))
+                          };
+                        });
+                      })()}
+                      stats={{
+                        classAvg: 0, // Todo: calc if needed or reuse ReferenceLine logic
+                        gradeAvg: 0 // We use Line now
+                      }}
+                    />
+                  </div>
+                )}
+
                 {/* ✅ TAB 2: TRACKING */}
                 {activeTab === "tracking" && (
                   <div>

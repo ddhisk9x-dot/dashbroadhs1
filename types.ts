@@ -10,6 +10,23 @@ export interface User {
   role: Role;
 }
 
+export interface LeaderboardItem {
+  name: string;
+  score: number;
+  rank: number;
+  class?: string;
+}
+
+export interface StudentDashboardStats {
+  classAvg: number;
+  gradeAvg: number;
+  avgScore: number;
+  targetScore: number;
+  leaderboardClass: Record<string, LeaderboardItem[]>; // Key is month
+  leaderboardGrade: Record<string, LeaderboardItem[]>; // Key is month
+  gradeAvgByMonth?: Record<string, number>; // New: for chart
+}
+
 export interface ScoreData {
   month: string; // e.g., "2025-08"
   math: number | null;
@@ -72,21 +89,30 @@ export interface Student {
   dashboardStats?: StudentDashboardStats;
 }
 
+// End of types
+avgScore: number;
+bestScore: number;
+classAvg: number;
+gradeAvg: number;
+targetScore: number;
+// Key: "YYYY-MM" -> List
+leaderboardClass: Record<string, LeaderboardItem[]>;
+leaderboardGrade: Record<string, LeaderboardItem[]>;
+}
+// ... existing types
 export interface LeaderboardItem {
-  id: string; // mhs (masked or not needed mostly)
   name: string;
-  class: string;
-  score: number; // task count or grade
+  score: number;
   rank: number;
+  class?: string;
 }
 
 export interface StudentDashboardStats {
-  avgScore: number;
-  bestScore: number;
   classAvg: number;
   gradeAvg: number;
+  avgScore: number;
   targetScore: number;
-  // Key: "YYYY-MM" -> List
-  leaderboardClass: Record<string, LeaderboardItem[]>;
-  leaderboardGrade: Record<string, LeaderboardItem[]>;
+  leaderboardClass: Record<string, LeaderboardItem[]>; // Key is month
+  leaderboardGrade: Record<string, LeaderboardItem[]>; // Key is month
+  gradeAvgByMonth?: Record<string, number>; // New: for chart
 }

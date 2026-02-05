@@ -68,12 +68,10 @@ const ScoreChart: React.FC<ScoreChartProps> = ({ data, stats }) => {
           <Line connectNulls={false} type="monotone" dataKey="math" name="Toán" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 7, strokeWidth: 0 }} />
           <Line connectNulls={false} type="monotone" dataKey="lit" name="Văn" stroke="#ec4899" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 7, strokeWidth: 0 }} />
           <Line connectNulls={false} type="monotone" dataKey="eng" name="Anh" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 7, strokeWidth: 0 }} />
+          <Line connectNulls={false} type="monotone" dataKey="gradeAvg" name="TB Khối" stroke="#22c55e" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 6, strokeWidth: 0 }} />
 
           {stats && stats.classAvg > 0 && (
             <ReferenceLine y={stats.classAvg} stroke="orange" strokeDasharray="3 3" label={{ position: 'right', value: 'TB Lớp', fill: 'orange', fontSize: 10 }} />
-          )}
-          {stats && stats.gradeAvg > 0 && (
-            <ReferenceLine y={stats.gradeAvg} stroke="green" strokeDasharray="3 3" label={{ position: 'right', value: 'TB Khối', fill: 'green', fontSize: 10 }} />
           )}
         </LineChart>
       </ResponsiveContainer>

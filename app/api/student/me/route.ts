@@ -135,6 +135,25 @@ export async function GET() {
     leaderboardGradeMap[mKey] = calcRank(gradeStudents, mKey);
   });
 
+  // Calc Grade Avg By Month (for Chart)
+  const gradeScoresMap: Record<string, { total: number; count: number }> = {};
+  gradeStudents.forEach((s: any) => {
+    (s.scores || []).forEach((sc: any) => {
+      const avg = getAvg(sc);
+      if (avg > 0 && sc.month) {
+        if (!gradeScoresMap[sc.month]) gradeScoresMap[sc.month] = { total: 0, count: 0 };
+        gradeScoresMap[sc.month].total += avg;
+        gradeScoresMap[sc.month].count++;
+      }
+    });
+  });
+
+  const gradeAvgByMonth: Record<string, number> = {};
+  Object.keys(gradeScoresMap).forEach(m => {
+    const { total, count } = gradeScoresMap[m];
+    gradeAvgByMonth[m] = count ? parseFloat((total / count).toFixed(1)) : 0;
+  });
+
   const finalStudent = {
     ...student,
     dashboardStats: {
@@ -144,7 +163,8 @@ export async function GET() {
       gradeAvg,
       targetScore: 8.5,
       leaderboardClass: leaderboardClassMap,
-      leaderboardGrade: leaderboardGradeMap
+      leaderboardGrade: leaderboardGradeMap,
+      gradeAvgByMonth // ✅ New field
     }
   };
 

@@ -1,5 +1,5 @@
 // services/clientApi.ts
-import type { Student, AIReport, StudyAction, User } from "../types";
+import type { Student, AIReport, StudyAction, User, StudentDashboardStats } from "../types";
 
 async function jfetch<T>(url: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -44,9 +44,9 @@ export const api = {
     return data.students || [];
   },
 
-  async getStudentMe(_mhs: string): Promise<Student> {
-    const data = await jfetch<{ student: Student }>("/api/student/me");
-    return data.student;
+  async getStudentMe(_mhs: string): Promise<Student & { stats?: StudentDashboardStats }> {
+    const data = await jfetch<{ student: Student; stats?: StudentDashboardStats }>("/api/student/me");
+    return { ...data.student, stats: data.stats };
   },
 
   async importExcel(students: Student[]): Promise<{ success: boolean; error?: string }> {

@@ -260,6 +260,17 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
   // ====== STREAK ======
   const streak = useMemo(() => calculateStreak(student), [student]);
 
+  // ====== CHART DATA ======
+  const chartData = useMemo(() => {
+    const scores = student.scores || [];
+    const gradeMap = student.dashboardStats?.gradeAvgByMonth || {};
+    return scores.map(s => ({
+      ...s,
+      gradeAvg: gradeMap[s.month] || 0
+    }));
+  }, [student.scores, student.dashboardStats]);
+
+
   // ====== ACTIONS ======
   const toggleDaily = async (action: StudyAction) => {
     const tickMap = buildTickMap(action);
@@ -287,7 +298,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
           {/* Chart */}
           <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
             <div className="text-sm font-bold text-slate-800 mb-4">Biểu đồ Học tập</div>
-            <ScoreChart data={student.scores || []} stats={student.dashboardStats} />
+            <ScoreChart data={chartData} stats={student.dashboardStats} />
           </div>
 
           {/* Leaderboard */}
