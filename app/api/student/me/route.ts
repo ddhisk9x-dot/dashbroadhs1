@@ -172,44 +172,136 @@ export async function GET() {
     };
   });
 
-  // ✅ Refined: Smart Dynamic AI Target calculation
+  // ✅ Refined: Smart Dynamic AI Target calculation using AI Report data
   const subjectTargets: Record<string, { math: number; lit: number; eng: number }> = {};
   const sortedScoreList = [...(student.scores || [])].sort((a: any, b: any) => String(a.month).localeCompare(String(b.month)));
 
+  // Get AI insights if available
+  const aiReport = student.aiReport || {};
+  const aiBySubject = aiReport.bySubject || {};
+  const riskLevel = aiReport.riskLevel || "Trung bình";
+
   sortedScoreList.forEach((sc: any, idx) => {
-    const prev = sortedScoreList[idx - 1] || sc;
+    const prev = sortedScoreList[idx - 1] || null;
+    const prevPrev = sortedScoreList[idx - 2] || null;
     const g = gradeAvgSubjectsByMonth[sc.month] || { math: 6, lit: 6, eng: 6 };
 
-    const smartT = (curr: number | null, p: number | null, gAvg: number) => {
-      if (curr === null) return 0;
-      const trend = curr - (p || curr);
-      // Logic: target is at least current + 0.2
-      // If improving (trend > 0), AI pushes more (+0.1)
-      // If below grade average, AI pushes to catch up
-      let growthValue = 0.2;
-      if (trend > 0) growthValue += 0.1;
-      if (curr < gAvg) growthValue += 0.2;
+    const smartT = (subjectKey: 'math' | 'lit' | 'eng', curr: number | null, p: number | null, pp: number | null, gAvg: number) => {
+      if (curr === null || curr === 0) return gAvg; // No data, aim for grade avg
 
-      const t = Math.max(curr + growthValue, gAvg + 0.1);
-      return parseFloat(Math.min(10, t).toFixed(1));
+      // Cap scores at 10 for calculation purposes
+      const cappedCurr = Math.min(15, curr);
+      const cappedP = p !== null ? Math.min(15, p) : null;
+      const cappedPP = pp !== null ? Math.min(15, pp) : null;
+
+      // Calculate trend (2-month moving direction)
+      let trend = 0;
+      if (cappedP !== null) {
+        trend = cappedCurr - cappedP;
+        if (cappedPP !== null) {
+          // Weight recent trend more
+          trend = trend * 0.7 + (cappedP - cappedPP) * 0.3;
+        }
+      }
+
+      // Get AI risk factor for this subject
+      const aiSubjectInfo = aiBySubject[subjectKey] || {};
+      const hasRisk = (aiSubjectInfo.status || "").includes("rủi ro") || (aiSubjectInfo.status || "").includes("yếu");
+
+      // Base growth calculation
+      let baseGrowth = 0.3; // Default growth target
+
+      // Adjust based on trend
+      if (trend > 0.5) {
+        baseGrowth += 0.2; // Strong upward trend, push harder
+      } else if (trend > 0) {
+        baseGrowth += 0.1; // Slight improvement
+      } else if (trend < -0.5) {
+        baseGrowth = 0.1; // Struggling, modest target
+      }
+
+      // Adjust based on position relative to grade avg
+      const distFromGradeAvg = cappedCurr - gAvg;
+      if (distFromGradeAvg < -1) {
+        // Significantly below average - push to catch up
+        baseGrowth += 0.3;
+      } else if (distFromGradeAvg < 0) {
+        baseGrowth += 0.1;
+      }
+
+      // AI risk adjustment
+      if (hasRisk) {
+        baseGrowth = Math.max(0.2, baseGrowth - 0.1); // More conservative if at risk
+      }
+
+      // Overall risk level adjustment
+      if (riskLevel === "Cao") {
+        baseGrowth = Math.max(0.15, baseGrowth * 0.8);
+      }
+
+      // Calculate target
+      let target = cappedCurr + baseGrowth;
+
+      // Ensure target is at least slightly above grade avg if below
+      if (target < gAvg && cappedCurr < gAvg) {
+        target = Math.min(gAvg + 0.2, cappedCurr + 0.5);
+      }
+
+      // Cap at 15
+      return parseFloat(Math.min(15, Math.max(1, target)).toFixed(1));
     };
 
     subjectTargets[sc.month] = {
-      math: smartT(sc.math, prev.math, g.math),
-      lit: smartT(sc.lit, prev.lit, g.lit),
-      eng: smartT(sc.eng, prev.eng, g.eng),
+      math: smartT('math', sc.math, prev?.math, prevPrev?.math, g.math),
+      lit: smartT('lit', sc.lit, prev?.lit, prevPrev?.lit, g.lit),
+      eng: smartT('eng', sc.eng, prev?.eng, prevPrev?.eng, g.eng),
     };
   });
 
-  // ✅ New Exam Target (Prediction for next phase)
+  // ✅ New Exam Target (Prediction for next phase) - AI-driven
   const lastSc = sortedScoreList[sortedScoreList.length - 1];
-  const lastT = lastSc ? subjectTargets[lastSc.month] : { math: 8.5, lit: 8.5, eng: 8.5 };
+  const prevSc = sortedScoreList[sortedScoreList.length - 2] || null;
+
+  const calcNextTarget = (subjectKey: 'math' | 'lit' | 'eng') => {
+    const lastScore = lastSc ? Math.min(15, lastSc[subjectKey] || 0) : 0;
+    const prevScore = prevSc ? Math.min(15, prevSc[subjectKey] || 0) : lastScore;
+    const trend = lastScore - prevScore;
+
+    // Get AI suggestion
+    const aiSubjectInfo = aiBySubject[subjectKey] || {};
+    const hasRisk = (aiSubjectInfo.status || "").includes("rủi ro") || (aiSubjectInfo.status || "").includes("yếu");
+
+    // Modest growth: 0.5-0.75 as requested
+    let growth = 0.5;
+    if (trend > 0) growth += 0.25; // Good trend, push a bit more
+    if (lastScore < 10) growth += 0.25; // Lower scores have more room to grow
+    if (hasRisk) growth = Math.max(0.3, growth - 0.2);
+
+    return parseFloat(Math.min(15, lastScore + growth).toFixed(1));
+  };
+
+  // Generate personalized AI message
+  const generateAIMessage = () => {
+    if (!lastSc) return "Chưa có đủ dữ liệu để phân tích. Hãy cập nhật điểm số!";
+
+    const avgScore = ((lastSc.math || 0) + (lastSc.lit || 0) + (lastSc.eng || 0)) / 3;
+
+    if (riskLevel === "Cao") {
+      return "Cần tập trung cải thiện các môn yếu. Mục tiêu này được tính toán phù hợp với khả năng!";
+    } else if (avgScore >= 12) {
+      return "Xuất sắc! Duy trì phong độ và thử thách bản thân với mục tiêu cao hơn!";
+    } else if (avgScore >= 9) {
+      return "Đang tiến bộ tốt! Mục tiêu này vừa tầm với nhưng vẫn đầy thử thách!";
+    } else {
+      return "Hãy từng bước cải thiện. Mục tiêu được đặt phù hợp để bạn đạt được!";
+    }
+  };
 
   const nextExamTargets = {
-    math: Math.min(10, lastT.math + 0.2),
-    lit: Math.min(10, lastT.lit + 0.2),
-    eng: Math.min(10, lastT.eng + 0.2),
-    message: "Dựa trên xu hướng tiến bộ, đây là mục tiêu tối ưu để bạn bứt phá trong kỳ thi tới!"
+    math: calcNextTarget('math'),
+    lit: calcNextTarget('lit'),
+    eng: calcNextTarget('eng'),
+    message: generateAIMessage()
   };
 
   const finalStudent = {

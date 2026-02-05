@@ -43,7 +43,7 @@ const ScoreChart: React.FC<ScoreChartProps> = ({ data, stats, subject }) => {
             dy={10}
           />
           <YAxis
-            domain={[0, 10]}
+            domain={[0, 15]}
             stroke="#94a3b8"
             tick={{ fontSize: 12, fill: '#64748b' }}
             axisLine={false}
@@ -71,9 +71,9 @@ const ScoreChart: React.FC<ScoreChartProps> = ({ data, stats, subject }) => {
           {showLit && <Line connectNulls={false} type="monotone" dataKey="gradeLit" name="TB Khối Văn" stroke="#ec4899" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />}
           {showEng && <Line connectNulls={false} type="monotone" dataKey="gradeEng" name="TB Khối Anh" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />}
 
-          {showMath && <Line connectNulls={false} type="monotone" dataKey="targetMath" name="Mục tiêu Toán" stroke="#3b82f6" strokeWidth={1} strokeDasharray="5 5" dot={false} label={false} />}
-          {showLit && <Line connectNulls={false} type="monotone" dataKey="targetLit" name="Mục tiêu Văn" stroke="#ec4899" strokeWidth={1} strokeDasharray="5 5" dot={false} label={false} />}
-          {showEng && <Line connectNulls={false} type="monotone" dataKey="targetEng" name="Mục tiêu Anh" stroke="#8b5cf6" strokeWidth={1} strokeDasharray="5 5" dot={false} label={false} />}
+          {showMath && <Line connectNulls={false} type="monotone" dataKey="targetMath" name="Mục tiêu Toán" stroke="#dc2626" strokeWidth={2} strokeDasharray="6 4" dot={false} />}
+          {showLit && <Line connectNulls={false} type="monotone" dataKey="targetLit" name="Mục tiêu Văn" stroke="#dc2626" strokeWidth={2} strokeDasharray="6 4" dot={false} />}
+          {showEng && <Line connectNulls={false} type="monotone" dataKey="targetEng" name="Mục tiêu Anh" stroke="#dc2626" strokeWidth={2} strokeDasharray="6 4" dot={false} />}
 
         </LineChart>
       </ResponsiveContainer>
