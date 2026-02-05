@@ -349,6 +349,67 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
               month={selectedTaskMonthSafe}
             />
 
+            {/* Next Exam Target */}
+            {student.dashboardStats?.nextExamTargets && (
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 border-l-4 border-l-amber-500">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-1.5 bg-amber-50 rounded-lg text-amber-600">
+                    <Trophy size={16} />
+                  </div>
+                  <div className="text-sm font-bold text-slate-800">Mục tiêu đợt thi sau</div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <div className="bg-slate-50 rounded-xl p-2 text-center">
+                    <div className="text-[10px] text-slate-500 mb-1">Toán</div>
+                    <div className="text-sm font-bold text-blue-600">{student.dashboardStats.nextExamTargets.math}</div>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-2 text-center">
+                    <div className="text-[10px] text-slate-500 mb-1">Văn</div>
+                    <div className="text-sm font-bold text-pink-600">{student.dashboardStats.nextExamTargets.lit}</div>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-2 text-center">
+                    <div className="text-[10px] text-slate-500 mb-1">Anh</div>
+                    <div className="text-sm font-bold text-violet-600">{student.dashboardStats.nextExamTargets.eng}</div>
+                  </div>
+                </div>
+                <div className="text-[11px] text-slate-500 italic leading-relaxed">
+                  “{student.dashboardStats.nextExamTargets.message}”
+                </div>
+              </div>
+            )}
+
+            {/* Achievement Toast (If met target in latest month) */}
+            {(() => {
+              const latest = [...(student.scores || [])].sort((a, b) => String(b.month).localeCompare(String(a.month)))[0];
+              const targets = student.dashboardStats?.subjectTargets?.[latest?.month || ""] || null;
+              if (!latest || !targets) return null;
+
+              const reachedMath = (latest.math || 0) >= targets.math;
+              const reachedLit = (latest.lit || 0) >= targets.lit;
+              const reachedEng = (latest.eng || 0) >= targets.eng;
+
+              if (reachedMath || reachedLit || reachedEng) {
+                const reachedNames = [
+                  reachedMath ? "Toán" : "",
+                  reachedLit ? "Văn" : "",
+                  reachedEng ? "Anh" : ""
+                ].filter(Boolean).join(", ");
+
+                return (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-3 animate-pulse shadow-sm">
+                    <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-white shrink-0">
+                      <Award size={20} />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-emerald-800">Tuyệt vời! 🔥</div>
+                      <div className="text-[11px] text-emerald-700">Bạn đã đạt mục tiêu môn {reachedNames} trong tháng này!</div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             {/* Message (Moved) */}
             <div className="rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white p-5 shadow-sm">
               <div className="text-sm font-bold mb-2">✨ Lời nhắn từ AI Mentor</div>
