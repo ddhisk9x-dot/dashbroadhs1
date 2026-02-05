@@ -92,6 +92,7 @@ export interface Student {
 
 // ... existing types
 export interface LeaderboardItem {
+  id: string;
   name: string;
   score: number;
   rank: number;
