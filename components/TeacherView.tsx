@@ -5,6 +5,7 @@ import TeacherResetPasswordButton from "./TeacherResetPasswordButton";
 import AdminChangePasswordButton from "./AdminChangePasswordButton";
 import { Student, ScoreData, StudyAction, AIReport } from "../types";
 import { generateStudentReport } from "../services/clientApi";
+import ScoreChart from "./ScoreChart";
 import {
   Upload,
   Users,
