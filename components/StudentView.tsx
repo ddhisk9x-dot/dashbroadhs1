@@ -2,7 +2,7 @@
 import StudentChangePassword from "./StudentChangePassword";
 import React, { useMemo, useState, useEffect } from "react";
 import type { Student, ScoreData, StudyAction } from "../types";
-import { LogOut, CalendarCheck, Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { LogOut, CalendarCheck, Check, ChevronLeft, ChevronRight, Trophy, Award } from "lucide-react";
 import ScoreChart from "./ScoreChart";
 import Header from "./Header";
 import OverviewCards from "./OverviewCards";
