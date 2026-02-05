@@ -107,4 +107,6 @@ export interface StudentDashboardStats {
   leaderboardClass: Record<string, LeaderboardItem[]>; // Key is month
   leaderboardGrade: Record<string, LeaderboardItem[]>; // Key is month
   gradeAvgSubjectsByMonth?: Record<string, { math: number; lit: number; eng: number }>; // New: specific subject avgs
+  subjectTargets?: Record<string, { math: number; lit: number; eng: number }>; // AI-suggested targets
+  nextExamTargets?: { math: number; lit: number; eng: number; message: string }; // Future targets
 }
