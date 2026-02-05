@@ -1,4 +1,5 @@
 import Script from "next/script";
+import "./globals.css";
 
 export const metadata = {
   title: "Deep Dashboard",
@@ -18,7 +19,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body style={{ fontFamily: '"Be Vietnam Pro", system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif' }}>
         {children}
-        <Script src="https://cdn.tailwindcss.com" strategy="beforeInteractive" />
         <Script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js" strategy="beforeInteractive" />
       </body>
     </html>

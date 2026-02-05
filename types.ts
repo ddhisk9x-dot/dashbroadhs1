@@ -65,5 +65,27 @@ export interface Student {
   activeActions: StudyAction[];
 
   // ✅ mới: nhiệm vụ theo tháng (key: "YYYY-MM")
+  // ✅ mới: nhiệm vụ theo tháng (key: "YYYY-MM")
   actionsByMonth?: Record<string, StudyAction[]>;
+
+  // ✅ Dashboard helper stats (optional, populated by API)
+  dashboardStats?: StudentDashboardStats;
+}
+
+export interface LeaderboardItem {
+  id: string; // mhs (masked or not needed mostly)
+  name: string;
+  class: string;
+  score: number; // task count or grade
+  rank: number;
+}
+
+export interface StudentDashboardStats {
+  avgScore: number;
+  bestScore: number;
+  classAvg: number;
+  gradeAvg: number;
+  targetScore: number;
+  leaderboardClass: LeaderboardItem[];
+  leaderboardGrade: LeaderboardItem[];
 }

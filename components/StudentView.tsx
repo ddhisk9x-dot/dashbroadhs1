@@ -4,6 +4,11 @@ import React, { useMemo, useState, useEffect } from "react";
 import type { Student, ScoreData, StudyAction } from "../types";
 import { LogOut, CalendarCheck, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import ScoreChart from "./ScoreChart";
+import Header from "./Header";
+import OverviewCards from "./OverviewCards";
+import MonthNavigator from "./MonthNavigator";
+import Leaderboard from "./Leaderboard";
+
 
 type Props = {
   student: Student;
@@ -79,6 +84,67 @@ function safeActionsByMonth(student: Student) {
   const abm = (student as any).actionsByMonth;
   if (abm && typeof abm === "object") return abm as Record<string, StudyAction[]>;
   return {};
+}
+
+function calculateStreak(student: Student): number {
+  const completedDates = new Set<string>();
+
+  // From actionsByMonth
+  const abm = safeActionsByMonth(student);
+  Object.values(abm).forEach((actions) => {
+    actions.forEach((a) => {
+      a.ticks?.forEach((t) => {
+        if (t.completed) completedDates.add(String(t.date));
+      });
+    });
+  });
+
+  // From activeActions (legacy fallback)
+  if (Array.isArray(student.activeActions)) {
+    student.activeActions.forEach((a) => {
+      a.ticks?.forEach((t) => {
+        if (t.completed) completedDates.add(String(t.date));
+      });
+    });
+  }
+
+  if (completedDates.size === 0) return 0;
+
+  // Check backwards from today
+  const today = new Date(); // Local time as per browser/server calc, relying on isoDate
+  // strict streak: must have done something today OR yesterday to keep it alive.
+  // if today is done => start today.
+  // if today NOT done => check yesterday. if yesterday done => start yesterday.
+  // else 0.
+
+  const todayStr = isoDate(today);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = isoDate(yesterday);
+
+  let currentDate: Date;
+
+  if (completedDates.has(todayStr)) {
+    currentDate = today;
+  } else if (completedDates.has(yesterdayStr)) {
+    currentDate = yesterday;
+  } else {
+    return 0;
+  }
+
+  let streak = 0;
+  // Safety break to avoid infinite loop (though unlikely with dates)
+  for (let i = 0; i < 3650; i++) {
+    const dStr = isoDate(currentDate);
+    if (completedDates.has(dStr)) {
+      streak++;
+      currentDate.setDate(currentDate.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+
+  return streak;
 }
 
 function getActionsForMonth(student: Student, monthKey: string): StudyAction[] {
@@ -191,6 +257,9 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
     return Array.from(map.entries());
   }, [ai]);
 
+  // ====== STREAK ======
+  const streak = useMemo(() => calculateStreak(student), [student]);
+
   // ====== ACTIONS ======
   const toggleDaily = async (action: StudyAction) => {
     const tickMap = buildTickMap(action);
@@ -205,100 +274,46 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
 
   return (
     <div className="min-h-screen bg-[#f7f9fc] font-sans">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200/60 px-5 py-4 sticky top-0 z-20">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-slate-800 font-bold text-lg">
-              Xin chào, <span className="uppercase">{student.name}</span> 👋
-            </div>
-            <div className="text-xs text-slate-500 mt-0.5">
-              MHS: <span className="font-mono text-indigo-600">{student.mhs}</span> | Lớp:{" "}
-              <span className="font-semibold text-slate-700">{student.class}</span>
-            </div>
-          </div>
-          <button
-            onClick={onLogout}
-            className="flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-red-600 transition"
-          >
-            <LogOut size={16} />
-            Đăng xuất
-          </button>
-        </div>
-      </div>
+      <Header student={student} onLogout={onLogout} streak={streak} />
 
       <div className="max-w-5xl mx-auto px-5 py-6 space-y-6">
-        {/* Cards */}
-        <div className="grid md:grid-cols-3 gap-4">
-          <div className="rounded-2xl border border-orange-100 bg-orange-50/60 p-4">
-            <div className="text-sm font-bold text-orange-700 mb-2">Tổng quan</div>
-            <div className="text-sm text-slate-700 leading-relaxed">{overviewText}</div>
+        <OverviewCards
+          overviewText={overviewText}
+          strengthsText={strengthsText}
+          risksText={risksText}
+        />
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Chart */}
+          <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <div className="text-sm font-bold text-slate-800 mb-4">Biểu đồ Học tập</div>
+            <ScoreChart data={student.scores || []} stats={student.dashboardStats} />
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <div className="text-sm font-bold text-slate-800 mb-2">Điểm mạnh</div>
-            <div className="text-sm text-slate-700 leading-relaxed">• {strengthsText}</div>
+          {/* Leaderboard */}
+          <div className="md:col-span-1">
+            <Leaderboard
+              leaderboardClass={student.dashboardStats?.leaderboardClass || []}
+              leaderboardGrade={student.dashboardStats?.leaderboardGrade || []}
+              currentMhs={student.mhs}
+            />
           </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <div className="text-sm font-bold text-slate-800 mb-2">Cần lưu ý</div>
-            <div className="text-sm text-slate-700 leading-relaxed">• {risksText}</div>
-          </div>
-        </div>
-
-        {/* Chart */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-          <div className="text-sm font-bold text-slate-800 mb-4">Biểu đồ Học tập</div>
-          <ScoreChart data={student.scores || []} />
         </div>
 
         {/* Daily habits */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-            <div>
-              <div className="text-sm font-bold text-slate-800">Thói quen Hàng ngày</div>
-              <div className="text-xs text-slate-500">Nhiệm vụ theo tháng: <b>{selectedTaskMonthSafe}</b> (tháng sau có thể khác).</div>
-            </div>
+          <MonthNavigator
+            selectedTaskMonthSafe={selectedTaskMonthSafe}
+            selectedDate={selectedDate}
+            monthKeys={monthKeys}
+            canPrevMonth={canPrevMonth}
+            canNextMonth={canNextMonth}
+            onSelectMonth={setSelectedTaskMonth}
+            onSelectDate={setSelectedDate}
+            onPrevMonth={() => canPrevMonth && setSelectedTaskMonth(monthKeys[monthIndex - 1])}
+            onNextMonth={() => canNextMonth && setSelectedTaskMonth(monthKeys[monthIndex + 1])}
+          />
 
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => canPrevMonth && setSelectedTaskMonth(monthKeys[monthIndex - 1])}
-                disabled={!canPrevMonth}
-                className="p-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
-                title="Tháng trước"
-              >
-                <ChevronLeft size={18} />
-              </button>
-
-              <select
-                value={selectedTaskMonthSafe}
-                onChange={(e) => setSelectedTaskMonth(e.target.value)}
-                className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700"
-              >
-                {monthKeys.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                onClick={() => canNextMonth && setSelectedTaskMonth(monthKeys[monthIndex + 1])}
-                disabled={!canNextMonth}
-                className="p-2 rounded-xl border border-slate-200 bg-white disabled:opacity-40"
-                title="Tháng sau"
-              >
-                <ChevronRight size={18} />
-              </button>
-
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="px-3 py-2 rounded-xl border border-slate-200 text-sm bg-white"
-              />
-            </div>
-          </div>
 
           {dailyActions.length === 0 ? (
             <div className="text-sm text-slate-400 italic py-6 text-center">

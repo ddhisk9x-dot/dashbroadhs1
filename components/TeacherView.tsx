@@ -190,6 +190,8 @@ const TeacherView: React.FC<TeacherViewProps> = ({
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState<"report" | "tracking">("report");
   const [selectedMhs, setSelectedMhs] = useState<Set<string>>(new Set());
+  const [filterClass, setFilterClass] = useState("ALL");
+  const [sortTicks, setSortTicks] = useState<"none" | "desc" | "asc">("none");
 
   // ✅ Who am I (ADMIN / TEACHER)
   const [me, setMe] = useState<any>(null);
@@ -260,16 +262,52 @@ const TeacherView: React.FC<TeacherViewProps> = ({
   const [syncMonthSearch, setSyncMonthSearch] = useState("");
   const [syncHint, setSyncHint] = useState<string>("");
 
-  // Filter logic (use visibleStudents)
+  const uniqueClasses = useMemo(() => {
+    const classes = new Set(visibleStudents.map((s) => s.class || "").filter(Boolean));
+    return Array.from(classes).sort();
+  }, [visibleStudents]);
+
   const filteredStudents = useMemo(() => {
     const q = searchTerm.toLowerCase();
-    return visibleStudents.filter(
+
+    // 1. Filter by Search & Class
+    let list = visibleStudents.filter(
       (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.mhs.toLowerCase().includes(q) ||
-        s.class.toLowerCase().includes(q)
+        (filterClass === "ALL" || s.class === filterClass) &&
+        (s.name.toLowerCase().includes(q) ||
+          s.mhs.toLowerCase().includes(q) ||
+          s.class.toLowerCase().includes(q))
     );
-  }, [visibleStudents, searchTerm]);
+
+    // 2. Sort by Ticks if needed
+    if (sortTicks !== "none") {
+      list = list.slice().sort((a, b) => {
+        const getTicks = (st: Student) => {
+          const taskMonth = inferredTaskMonth(st);
+          const abm = safeActionsByMonth(st);
+          const acts = Array.isArray((st as any)?.actionsByMonth?.[taskMonth])
+            ? ((st as any).actionsByMonth[taskMonth] as any[])
+            : Array.isArray(abm?.[taskMonth])
+              ? (abm[taskMonth] as any[])
+              : Array.isArray(st.activeActions)
+                ? (st.activeActions as any[])
+                : [];
+          return acts.reduce((acc, act: any) => {
+            const ticks = Array.isArray(act?.ticks) ? act.ticks : [];
+            const done = ticks.filter(
+              (t: any) => t?.completed && String(t?.date || "").slice(0, 7) === taskMonth
+            ).length;
+            return acc + done;
+          }, 0);
+        };
+        const ticksA = getTicks(a);
+        const ticksB = getTicks(b);
+        return sortTicks === "desc" ? ticksB - ticksA : ticksA - ticksB;
+      });
+    }
+
+    return list;
+  }, [visibleStudents, searchTerm, filterClass, sortTicks]);
 
   useEffect(() => {
     if (viewingStudent && viewingStudent.aiReport) {
@@ -687,17 +725,15 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                           key={m}
                           type="button"
                           onClick={() => toggleMonth(m)}
-                          className={`flex items-center justify-between px-3 py-2 rounded-xl border text-sm font-semibold transition-all ${
-                            checked
+                          className={`flex items-center justify-between px-3 py-2 rounded-xl border text-sm font-semibold transition-all ${checked
                               ? "bg-white border-emerald-200 text-emerald-700 shadow-sm"
                               : "bg-white/70 border-slate-200 text-slate-700 hover:bg-white"
-                          }`}
+                            }`}
                         >
                           <span>{m}</span>
                           <span
-                            className={`w-5 h-5 rounded-md border flex items-center justify-center ${
-                              checked ? "bg-emerald-600 border-emerald-600" : "bg-white border-slate-300"
-                            }`}
+                            className={`w-5 h-5 rounded-md border flex items-center justify-center ${checked ? "bg-emerald-600 border-emerald-600" : "bg-white border-slate-300"
+                              }`}
                           >
                             {checked && <Check size={14} className="text-white" />}
                           </span>
@@ -764,6 +800,20 @@ const TeacherView: React.FC<TeacherViewProps> = ({
             />
           </div>
 
+          <div className="relative">
+            <select
+              className="pl-3 pr-8 py-2 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white outline-none text-sm appearance-none cursor-pointer"
+              value={filterClass}
+              onChange={(e) => setFilterClass(e.target.value)}
+            >
+              <option value="ALL">Tất cả lớp</option>
+              {uniqueClasses.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <div className="absolute right-3 top-2.5 pointer-events-none text-slate-400">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+          </div>
+
           {/* ✅ Ẩn nút nguy hiểm khi TEACHER */}
           {!isTeacher && (
             <>
@@ -795,7 +845,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
               </label>
             </>
           )}
-<AdminChangePasswordButton />
+          <AdminChangePasswordButton />
           <button
             onClick={onLogout}
             className="text-sm font-semibold text-slate-500 hover:text-red-500 transition-colors px-2 ml-2"
@@ -835,7 +885,17 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                   <th className="px-6 py-5">Lớp</th>
                   <th className="px-6 py-5">Điểm TB (Gần nhất)</th>
                   <th className="px-6 py-5">Rủi ro</th>
-                  <th className="px-6 py-5">Tiến độ Tick</th>
+                  <th
+                    className="px-6 py-5 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                    onClick={() => setSortTicks(prev => prev === "desc" ? "asc" : prev === "asc" ? "none" : "desc")}
+                  >
+                    <div className="flex items-center gap-2">
+                      Tiến độ Tick
+                      {sortTicks === "desc" && <span className="text-indigo-600">↓</span>}
+                      {sortTicks === "asc" && <span className="text-indigo-600">↑</span>}
+                      {sortTicks === "none" && <span className="text-slate-300 group-hover:text-slate-400">↕</span>}
+                    </div>
+                  </th>
                   <th className="px-6 py-5 text-right">Hành động</th>
                 </tr>
               </thead>
@@ -863,10 +923,10 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                     const acts = Array.isArray((student as any)?.actionsByMonth?.[taskMonth])
                       ? ((student as any).actionsByMonth[taskMonth] as any[])
                       : Array.isArray(abm?.[taskMonth])
-                      ? (abm[taskMonth] as any[])
-                      : Array.isArray(student.activeActions)
-                      ? (student.activeActions as any[])
-                      : [];
+                        ? (abm[taskMonth] as any[])
+                        : Array.isArray(student.activeActions)
+                          ? (student.activeActions as any[])
+                          : [];
 
                     const totalTicksInTaskMonth = acts.reduce((acc, act: any) => {
                       const ticks = Array.isArray(act?.ticks) ? act.ticks : [];
@@ -906,15 +966,14 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
                         <td className="px-6 py-4 text-sm text-slate-600">
                           <span
-                            className={`px-2.5 py-1 rounded-lg font-bold text-xs ${
-                              avg === "N/A"
+                            className={`px-2.5 py-1 rounded-lg font-bold text-xs ${avg === "N/A"
                                 ? "bg-slate-100 text-slate-500"
                                 : Number(avg) >= 8
-                                ? "bg-emerald-100 text-emerald-700"
-                                : Number(avg) >= 5
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-rose-100 text-rose-700"
-                            }`}
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : Number(avg) >= 5
+                                    ? "bg-amber-100 text-amber-700"
+                                    : "bg-rose-100 text-rose-700"
+                              }`}
                           >
                             {avg}
                           </span>
@@ -926,13 +985,12 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                         <td className="px-6 py-4">
                           {student.aiReport ? (
                             <span
-                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${
-                                student.aiReport.riskLevel === "Cao"
+                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border ${student.aiReport.riskLevel === "Cao"
                                   ? "bg-red-50 text-red-600 border-red-100"
                                   : student.aiReport.riskLevel === "Trung bình"
-                                  ? "bg-orange-50 text-orange-600 border-orange-100"
-                                  : "bg-emerald-50 text-emerald-600 border-emerald-100"
-                              }`}
+                                    ? "bg-orange-50 text-orange-600 border-orange-100"
+                                    : "bg-emerald-50 text-emerald-600 border-emerald-100"
+                                }`}
                             >
                               {student.aiReport.riskLevel === "Cao" && <AlertTriangle size={12} />}
                               {student.aiReport.riskLevel}
@@ -1026,11 +1084,10 @@ const TeacherView: React.FC<TeacherViewProps> = ({
             <div className="flex border-b border-slate-100 px-6">
               <button
                 onClick={() => setActiveTab("report")}
-                className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${
-                  activeTab === "report"
+                className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${activeTab === "report"
                     ? "border-indigo-600 text-indigo-600"
                     : "border-transparent text-slate-500 hover:text-slate-700"
-                }`}
+                  }`}
                 type="button"
               >
                 <div className="flex items-center gap-2">
@@ -1040,11 +1097,10 @@ const TeacherView: React.FC<TeacherViewProps> = ({
 
               <button
                 onClick={() => setActiveTab("tracking")}
-                className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${
-                  activeTab === "tracking"
+                className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors ${activeTab === "tracking"
                     ? "border-indigo-600 text-indigo-600"
                     : "border-transparent text-slate-500 hover:text-slate-700"
-                }`}
+                  }`}
                 type="button"
               >
                 <div className="flex items-center gap-2">
@@ -1079,22 +1135,20 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                     </div>
 
                     <div
-                      className={`p-5 rounded-2xl border ${
-                        viewingStudent.aiReport.riskLevel === "Cao"
+                      className={`p-5 rounded-2xl border ${viewingStudent.aiReport.riskLevel === "Cao"
                           ? "border-red-200 bg-red-50/50"
                           : viewingStudent.aiReport.riskLevel === "Trung bình"
-                          ? "border-orange-200 bg-orange-50/50"
-                          : "border-emerald-200 bg-emerald-50/50"
-                      }`}
+                            ? "border-orange-200 bg-orange-50/50"
+                            : "border-emerald-200 bg-emerald-50/50"
+                        }`}
                     >
                       <h3
-                        className={`font-bold text-sm uppercase tracking-wide mb-3 ${
-                          viewingStudent.aiReport.riskLevel === "Cao"
+                        className={`font-bold text-sm uppercase tracking-wide mb-3 ${viewingStudent.aiReport.riskLevel === "Cao"
                             ? "text-red-700"
                             : viewingStudent.aiReport.riskLevel === "Trung bình"
-                            ? "text-orange-700"
-                            : "text-emerald-700"
-                        }`}
+                              ? "text-orange-700"
+                              : "text-emerald-700"
+                          }`}
                       >
                         Đánh giá Tổng quan
                       </h3>
@@ -1174,36 +1228,32 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                         <button
                           type="button"
                           onClick={() => setTrackingMode("7")}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg ${
-                            trackingMode === "7" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
-                          }`}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg ${trackingMode === "7" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                            }`}
                         >
                           7 ngày
                         </button>
                         <button
                           type="button"
                           onClick={() => setTrackingMode("30")}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg ${
-                            trackingMode === "30" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
-                          }`}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg ${trackingMode === "30" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                            }`}
                         >
                           30 ngày
                         </button>
                         <button
                           type="button"
                           onClick={() => setTrackingMode("90")}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg ${
-                            trackingMode === "90" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
-                          }`}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg ${trackingMode === "90" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                            }`}
                         >
                           90 ngày
                         </button>
                         <button
                           type="button"
                           onClick={() => setTrackingMode("month")}
-                          className={`px-3 py-1.5 text-xs font-bold rounded-lg ${
-                            trackingMode === "month" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
-                          }`}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-lg ${trackingMode === "month" ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                            }`}
                         >
                           Theo tháng
                         </button>
@@ -1264,16 +1314,14 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                                   return (
                                     <div key={dateString} className="flex flex-col items-center gap-2 flex-1">
                                       <div
-                                        className={`w-full h-2 rounded-full transition-all duration-500 ${
-                                          isDone ? "bg-emerald-500" : "bg-slate-100"
-                                        }`}
+                                        className={`w-full h-2 rounded-full transition-all duration-500 ${isDone ? "bg-emerald-500" : "bg-slate-100"
+                                          }`}
                                       />
                                       <div
-                                        className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-medium transition-all ${
-                                          isDone
+                                        className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-medium transition-all ${isDone
                                             ? "bg-emerald-100 text-emerald-700"
                                             : "bg-slate-50 text-slate-400 border border-slate-100"
-                                        }`}
+                                          }`}
                                         title={dateString}
                                       >
                                         {isDone ? <Check size={16} /> : <span className="text-[10px]">{dayLabel}</span>}
