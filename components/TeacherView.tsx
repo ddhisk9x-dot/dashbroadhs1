@@ -1424,8 +1424,14 @@ const TeacherView: React.FC<TeacherViewProps> = ({
                         });
                       })()}
                       stats={{
-                        classAvg: 0, // Todo: calc if needed or reuse ReferenceLine logic
-                        gradeAvg: 0 // We use Line now
+                        classAvg: 0,
+                        gradeAvg: 0,
+                        avgScore: 0,
+                        targetScore: 0,
+                        leaderboardClass: {},
+                        leaderboardGrade: {},
+                        classAvgByMonth: {},
+                        gradeAvgByMonth: {}
                       }}
                     />
                   </div>
