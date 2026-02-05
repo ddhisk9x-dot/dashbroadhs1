@@ -89,16 +89,7 @@ export interface Student {
   dashboardStats?: StudentDashboardStats;
 }
 
-// End of types
-avgScore: number;
-bestScore: number;
-classAvg: number;
-gradeAvg: number;
-targetScore: number;
-// Key: "YYYY-MM" -> List
-leaderboardClass: Record<string, LeaderboardItem[]>;
-leaderboardGrade: Record<string, LeaderboardItem[]>;
-}
+
 // ... existing types
 export interface LeaderboardItem {
   name: string;
@@ -115,4 +106,5 @@ export interface StudentDashboardStats {
   leaderboardClass: Record<string, LeaderboardItem[]>; // Key is month
   leaderboardGrade: Record<string, LeaderboardItem[]>; // Key is month
   gradeAvgByMonth?: Record<string, number>; // New: for chart
+  classAvgByMonth?: Record<string, number>; // New: for chart
 }
