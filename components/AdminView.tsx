@@ -1,7 +1,10 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { User, Student, ScoreData, StudyAction, AIReport } from "../types";
-import { LogOut, Users, School, LayoutDashboard, Menu, X, RefreshCw, AlertCircle, Edit, Trash2, GraduationCap, ClipboardList } from "lucide-react";
+import { LogOut, Users, School, LayoutDashboard, Menu, X, RefreshCw, AlertCircle, Edit, Trash2, GraduationCap, ClipboardList, BarChart as BarChartIcon } from "lucide-react";
 import { api, generateStudentReport } from "../services/clientApi";
+import {
+    LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, AreaChart, Area
+} from "recharts";
 
 // Teacher Components Re-use
 import TeacherHeader from "./teacher/TeacherHeader";
@@ -60,7 +63,7 @@ async function persistReportAndActions(mhs: string, report: AIReport, actions: S
 }
 
 export default function AdminView({ user, students, onLogout, onImportData, onUpdateStudentReport }: AdminViewProps) {
-    const [activeTab, setActiveTab] = useState<"DASHBOARD" | "USERS" | "CLASSES" | "TEACHER_MODE">("DASHBOARD");
+    const [activeTab, setActiveTab] = useState<"DASHBOARD" | "USERS" | "CLASSES" | "TEACHER_MODE" | "ANALYTICS">("DASHBOARD");
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     return (
@@ -87,6 +90,7 @@ export default function AdminView({ user, students, onLogout, onImportData, onUp
                     <SidebarItem icon={<LayoutDashboard size={20} />} label="Tổng quan" active={activeTab === "DASHBOARD"} onClick={() => { setActiveTab("DASHBOARD"); setIsSidebarOpen(false); }} />
                     <SidebarItem icon={<Users size={20} />} label="Quản lý Người dùng" active={activeTab === "USERS"} onClick={() => { setActiveTab("USERS"); setIsSidebarOpen(false); }} />
                     <SidebarItem icon={<School size={20} />} label="Quản lý Lớp học" active={activeTab === "CLASSES"} onClick={() => { setActiveTab("CLASSES"); setIsSidebarOpen(false); }} />
+                    <SidebarItem icon={<BarChartIcon size={20} />} label="Báo cáo & Thống kê" active={activeTab === "ANALYTICS"} onClick={() => { setActiveTab("ANALYTICS"); setIsSidebarOpen(false); }} />
                     <div className="pt-4 mt-4 border-t border-slate-700">
                         <SidebarItem icon={<GraduationCap size={20} />} label="Chế độ Giáo viên" active={activeTab === "TEACHER_MODE"} onClick={() => { setActiveTab("TEACHER_MODE"); setIsSidebarOpen(false); }} />
                     </div>
@@ -114,6 +118,8 @@ export default function AdminView({ user, students, onLogout, onImportData, onUp
                         onUpdateStudentReport={onUpdateStudentReport}
                         user={user}
                     />
+                ) : activeTab === "ANALYTICS" ? (
+                    <AdminAnalyticsTab students={students} />
                 ) : (
                     <div className="p-4 md:p-8">
                         {activeTab === "DASHBOARD" && <AdminDashboardTab students={students} />}
@@ -500,4 +506,150 @@ function ClassModal({ onClose, onSave }: { onClose: () => void; onSave: (c: Clas
 function StatCard({ label, value, color }: { label: string; value: string | number; color: "blue" | "purple" | "emerald" }) {
     const colorStyles = { blue: "bg-blue-50 text-blue-700 border-blue-100", purple: "bg-purple-50 text-purple-700 border-purple-100", emerald: "bg-emerald-50 text-emerald-700 border-emerald-100" }
     return <div className={`p-6 rounded-2xl border ${colorStyles[color]}`}><div className="text-sm font-medium opacity-80">{label}</div><div className="text-4xl font-bold mt-2">{value}</div></div>
+}
+
+// --- Admin Analytics Tab ---
+function AdminAnalyticsTab({ students }: { students: Student[] }) {
+    // 1. Score Trends Data
+    const scoreTrendData = useMemo(() => {
+        const monthMap = new Map<string, { math: number[], lit: number[], eng: number[] }>();
+        const allMonths = new Set<string>();
+
+        students.forEach(s => {
+            s.scores.forEach(score => {
+                const m = score.month;
+                if (!isMonthKey(m)) return;
+                allMonths.add(m);
+                if (!monthMap.has(m)) monthMap.set(m, { math: [], lit: [], eng: [] });
+                const entry = monthMap.get(m)!;
+                if (typeof score.math === "number") entry.math.push(score.math);
+                if (typeof score.lit === "number") entry.lit.push(score.lit);
+                if (typeof score.eng === "number") entry.eng.push(score.eng);
+            });
+        });
+
+        return Array.from(allMonths).sort().map(month => {
+            const data = monthMap.get(month)!;
+            const avg = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+            const max = (arr: number[]) => arr.length ? Math.max(...arr) : 0;
+            const min = (arr: number[]) => arr.length ? Math.min(...arr) : 0;
+
+            // Average across all 3 subjects
+            const allScores = [...data.math, ...data.lit, ...data.eng];
+            return {
+                month,
+                avgScore: parseFloat(avg(allScores).toFixed(2)),
+                maxScore: max(allScores),
+                minScore: min(allScores),
+            };
+        });
+    }, [students]);
+
+    // 2. Class Ticks Data
+    const [selectedMonth, setSelectedMonth] = useState<string>(isoMonth(new Date()));
+
+    // Get available months for dropdown
+    const availableMonths = useMemo(() => {
+        const s = new Set<string>();
+        students.forEach(st => st.scores?.forEach(sc => s.add(sc.month))); // Use score months as proxy
+        return Array.from(s).sort().reverse();
+    }, [students]);
+
+    const classTickData = useMemo(() => {
+        const classMap = new Map<string, { totalTicks: number, studentCount: number }>();
+
+        students.forEach(s => {
+            const cls = s.class || "Unknown";
+            if (!classMap.has(cls)) classMap.set(cls, { totalTicks: 0, studentCount: 0 });
+
+            const entry = classMap.get(cls)!;
+            entry.studentCount++;
+
+            // Calculate ticks for selected month (Fallback to activeActions if selected matches current inferred)
+            const taskMonth = inferredTaskMonth(s);
+            const abm = safeActionsByMonth(s); // Uses activeActions if month matches or is missing
+            const actions = abm[selectedMonth] || (selectedMonth === taskMonth ? s.activeActions : []);
+
+            let ticksCount = 0;
+            if (Array.isArray(actions)) {
+                actions.forEach(a => {
+                    const ticks = Array.isArray(a.ticks) ? a.ticks : [];
+                    ticksCount += ticks.filter(t => t.completed).length;
+                    // Note: Ideally filter tick date by month too, but for now assuming action month alignment
+                });
+            }
+            entry.totalTicks += ticksCount;
+        });
+
+        return Array.from(classMap.entries()).map(([cls, data]) => ({
+            name: cls,
+            totalTicks: data.totalTicks,
+            avgTicks: parseFloat((data.totalTicks / data.studentCount).toFixed(1)),
+        })).sort((a, b) => b.avgTicks - a.avgTicks);
+    }, [students, selectedMonth]);
+
+    return (
+        <div className="p-4 md:p-8 space-y-8 animate-in fade-in">
+            <h2 className="text-2xl font-bold text-slate-800">Báo cáo & Thống kê</h2>
+
+            {/* Chart 1: Academic Performance Trends */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <h3 className="text-lg font-bold text-slate-700 mb-4">Biến động Điểm số (TB Khối)</h3>
+                <div className="h-[300px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={scoreTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                            <defs>
+                                <linearGradient id="colorAvg" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                                </linearGradient>
+                            </defs>
+                            <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} domain={[0, 10]} />
+                            <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                            <Area type="monotone" dataKey="avgScore" name="Điểm TB" stroke="#3b82f6" fillOpacity={1} fill="url(#colorAvg)" strokeWidth={3} />
+                            <Line type="monotone" dataKey="maxScore" name="Cao nhất" stroke="#10b981" strokeWidth={2} dot={false} strokeDasharray="5 5" />
+                            <Line type="monotone" dataKey="minScore" name="Thấp nhất" stroke="#ef4444" strokeWidth={2} dot={false} strokeDasharray="5 5" />
+                            <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
+
+            {/* Chart 2: Class Engagement (Ticks) */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-lg font-bold text-slate-700">Mức độ Chăm chỉ theo Lớp (Ticks)</h3>
+                    <select
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(e.target.value)}
+                        className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                        {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                        {availableMonths.length === 0 && <option value={isoMonth(new Date())}>{isoMonth(new Date())}</option>}
+                    </select>
+                </div>
+
+                <div className="h-[300px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={classTickData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                            <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
+                            <RechartsTooltip
+                                cursor={{ fill: '#f1f5f9' }}
+                                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                            />
+                            <Bar dataKey="avgTicks" name="TB Ticks/HS" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={40} />
+                            <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+                <div className="mt-4 text-center text-sm text-slate-500 italic">
+                    * Dữ liệu dựa trên tổng số nhiệm vụ (ticks) hoàn thành của lớp chia cho sĩ số.
+                </div>
+            </div>
+        </div>
+    );
 }
