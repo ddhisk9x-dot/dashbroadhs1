@@ -212,8 +212,8 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
 
           {/* Main Dashboard Grid */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-            {/* Left Column: Charts & Analysis (8 cols) */}
-            <div className="xl:col-span-8 space-y-8">
+            {/* Left Column: Charts & Analysis (8 cols) - order-2 on mobile to appear after sidebar */}
+            <div className="xl:col-span-8 space-y-8 order-2 xl:order-1">
 
               {/* Charts Section */}
               <div className="grid md:grid-cols-2 gap-6">
@@ -325,8 +325,8 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
               </div>
             </div>
 
-            {/* Right Column: Sidebar (4 cols) */}
-            <div className="xl:col-span-4 space-y-8">
+            {/* Right Column: Sidebar (4 cols) - order-1 on mobile to appear FIRST (before Daily Habits) */}
+            <div className="xl:col-span-4 space-y-8 order-1 xl:order-2">
               {/* AI Mentor Card (High Emphasis) */}
               <div className="relative group overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#4f46e5] to-[#7c3aed] text-white p-8 shadow-2xl shadow-indigo-500/30">
                 <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full blur-[50px] -mr-10 -mt-10 animate-pulse-slow" />

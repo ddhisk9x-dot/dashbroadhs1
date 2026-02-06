@@ -553,6 +553,146 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
         return Array.from(s).sort().reverse();
     }, [students]);
 
+    // =====================================================
+    // NEW: Pure Academic Risk Report (Score-only, NO ticks)
+    // =====================================================
+    const pureAcademicRisk = useMemo(() => {
+        type RiskLevel = "DANGER" | "WARNING" | "NOTICE";
+        const risks: { student: Student, avgScore: number, level: RiskLevel, reasons: string[] }[] = [];
+        const monthKey = selectedMonth;
+
+        students.forEach(s => {
+            const scoreObj = s.scores.find(sc => sc.month === monthKey);
+            if (!scoreObj) return;
+
+            const MATH = scoreObj.math ?? 0;
+            const LIT = scoreObj.lit ?? 0;
+            const ENG = scoreObj.eng ?? 0;
+            const avg = (MATH + LIT + ENG) / 3;
+            const reasons: string[] = [];
+            let level: RiskLevel | null = null;
+
+            // Rule 1: Danger - Avg < 4.0
+            if (avg < 4.0 && avg > 0) {
+                level = "DANGER";
+                reasons.push(`TB < 4.0 (${avg.toFixed(1)})`);
+            }
+            // Rule 2: Warning - Avg 4.0-5.0 OR Score Drop > 1.5
+            else if (avg >= 4.0 && avg < 5.0) {
+                level = level || "WARNING";
+                reasons.push(`TB thấp (${avg.toFixed(1)})`);
+            }
+
+            // Rule 3: Score Drop
+            const idx = s.scores.findIndex(sc => sc.month === monthKey);
+            if (idx > 0) {
+                const prev = s.scores[idx - 1];
+                const prevAvg = ((prev.math ?? 0) + (prev.lit ?? 0) + (prev.eng ?? 0)) / 3;
+                if (prevAvg - avg > 1.5) {
+                    level = level || "WARNING";
+                    reasons.push(`Tụt điểm (-${(prevAvg - avg).toFixed(1)})`);
+                }
+            }
+
+            // Rule 4: Notice - Any single subject < 5.0
+            if ((MATH > 0 && MATH < 5.0) || (LIT > 0 && LIT < 5.0) || (ENG > 0 && ENG < 5.0)) {
+                if (!level) level = "NOTICE";
+                const weak: string[] = [];
+                if (MATH > 0 && MATH < 5.0) weak.push(`Toán: ${MATH}`);
+                if (LIT > 0 && LIT < 5.0) weak.push(`Văn: ${LIT}`);
+                if (ENG > 0 && ENG < 5.0) weak.push(`Anh: ${ENG}`);
+                if (weak.length) reasons.push(weak.join(", "));
+            }
+
+            if (level && reasons.length) {
+                risks.push({ student: s, avgScore: avg, level, reasons });
+            }
+        });
+
+        // Sort by severity
+        const order: Record<RiskLevel, number> = { DANGER: 0, WARNING: 1, NOTICE: 2 };
+        return risks.sort((a, b) => order[a.level] - order[b.level] || a.avgScore - b.avgScore);
+    }, [students, selectedMonth]);
+
+    // =====================================================
+    // NEW: Value-Added Analysis (Top Improvers + Class Momentum)
+    // =====================================================
+    const valueAddedData = useMemo(() => {
+        const improvers: { student: Student, delta: number, prevAvg: number, currAvg: number }[] = [];
+        const classMomentum = new Map<string, { totalDelta: number, count: number }>();
+
+        students.forEach(s => {
+            const idx = s.scores.findIndex(sc => sc.month === selectedMonth);
+            if (idx <= 0) return;
+
+            const curr = s.scores[idx];
+            const prev = s.scores[idx - 1];
+            const currAvg = ((curr.math ?? 0) + (curr.lit ?? 0) + (curr.eng ?? 0)) / 3;
+            const prevAvg = ((prev.math ?? 0) + (prev.lit ?? 0) + (prev.eng ?? 0)) / 3;
+            const delta = currAvg - prevAvg;
+
+            if (prevAvg > 0) {
+                improvers.push({ student: s, delta, prevAvg, currAvg });
+
+                const cls = s.class || "Unknown";
+                if (!classMomentum.has(cls)) classMomentum.set(cls, { totalDelta: 0, count: 0 });
+                const entry = classMomentum.get(cls)!;
+                entry.totalDelta += delta;
+                entry.count++;
+            }
+        });
+
+        const topImprovers = improvers.sort((a, b) => b.delta - a.delta).slice(0, 5);
+        const classData = Array.from(classMomentum.entries())
+            .map(([name, data]) => ({ name, avgDelta: parseFloat((data.totalDelta / data.count).toFixed(2)) }))
+            .sort((a, b) => b.avgDelta - a.avgDelta);
+
+        return { topImprovers, classData };
+    }, [students, selectedMonth]);
+
+    // =====================================================
+    // NEW: Subject Heatmap (Score by Subject x Class)
+    // =====================================================
+    const heatmapData = useMemo(() => {
+        const classSubjectMap = new Map<string, { math: number[], lit: number[], eng: number[] }>();
+
+        students.forEach(s => {
+            const scoreObj = s.scores.find(sc => sc.month === selectedMonth);
+            if (!scoreObj) return;
+
+            const cls = s.class || "Unknown";
+            if (!classSubjectMap.has(cls)) classSubjectMap.set(cls, { math: [], lit: [], eng: [] });
+            const entry = classSubjectMap.get(cls)!;
+            if (typeof scoreObj.math === "number") entry.math.push(scoreObj.math);
+            if (typeof scoreObj.lit === "number") entry.lit.push(scoreObj.lit);
+            if (typeof scoreObj.eng === "number") entry.eng.push(scoreObj.eng);
+        });
+
+        const classes = Array.from(classSubjectMap.keys()).sort();
+        const subjects = ["Toán", "Văn", "Anh"] as const;
+        const subjectKeys = { "Toán": "math", "Văn": "lit", "Anh": "eng" } as const;
+
+        const getColor = (avg: number) => {
+            if (avg >= 7.5) return "bg-emerald-500 text-white";
+            if (avg >= 5.0) return "bg-yellow-400 text-slate-800";
+            return "bg-red-500 text-white";
+        };
+
+        const grid = subjects.map(subj => {
+            const key = subjectKeys[subj];
+            return {
+                subject: subj,
+                cells: classes.map(cls => {
+                    const arr = classSubjectMap.get(cls)?.[key] || [];
+                    const avg = arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+                    return { class: cls, avg: parseFloat(avg.toFixed(1)), color: getColor(avg) };
+                }),
+            };
+        });
+
+        return { classes, grid };
+    }, [students, selectedMonth]);
+
     const classTickData = useMemo(() => {
         const classMap = new Map<string, { totalTicks: number, studentCount: number }>();
 
@@ -650,19 +790,162 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
 
     return (
         <div className="p-4 md:p-8 space-y-8 animate-in fade-in">
-            <h2 className="text-2xl font-bold text-slate-800">Báo cáo & Thống kê</h2>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+                <h2 className="text-2xl font-bold text-slate-800">Báo cáo & Thống kê</h2>
+                <select
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="border border-slate-200 rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm"
+                >
+                    {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                    {availableMonths.length === 0 && <option value={isoMonth(new Date())}>{isoMonth(new Date())}</option>}
+                </select>
+            </div>
 
-            {/* NEW: Early Warning & Habit Matrix */}
+            {/* ==== Section 1: Pure Academic Risk Report (Score-only) ==== */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border-2 border-red-200">
+                <div className="flex items-center gap-2 mb-4">
+                    <AlertCircle className="text-red-600" size={24} />
+                    <h3 className="text-lg font-bold text-red-800">🚨 Cảnh báo Học lực (Chỉ xét Điểm số)</h3>
+                </div>
+                <div className="overflow-y-auto max-h-[350px]">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-red-50 text-red-900 sticky top-0">
+                            <tr>
+                                <th className="p-3 rounded-tl-lg">Học sinh</th>
+                                <th className="p-3">Lớp</th>
+                                <th className="p-3">Điểm TB</th>
+                                <th className="p-3">Mức độ</th>
+                                <th className="p-3 rounded-tr-lg">Lý do</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                            {pureAcademicRisk.length === 0 ? (
+                                <tr><td colSpan={5} className="p-4 text-center text-slate-500">✅ Không có học sinh nào trong mức cảnh báo học lực.</td></tr>
+                            ) : (
+                                pureAcademicRisk.map((r, idx) => (
+                                    <tr key={idx} className="hover:bg-slate-50">
+                                        <td className="p-3 font-medium">{r.student.name}</td>
+                                        <td className="p-3 text-slate-500">{r.student.class}</td>
+                                        <td className="p-3 font-bold">{r.avgScore.toFixed(1)}</td>
+                                        <td className="p-3">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold ${r.level === "DANGER" ? "bg-red-600 text-white" :
+                                                r.level === "WARNING" ? "bg-orange-500 text-white" :
+                                                    "bg-yellow-400 text-slate-800"
+                                                }`}>
+                                                {r.level === "DANGER" ? "🔴 Nguy hiểm" : r.level === "WARNING" ? "🟠 Theo dõi" : "🟡 Chú ý"}
+                                            </span>
+                                        </td>
+                                        <td className="p-3 text-xs text-slate-600">{r.reasons.join(" · ")}</td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* ==== Section 2: Subject Heatmap ==== */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <h3 className="text-lg font-bold text-slate-700 mb-4">🔥 Bản đồ Nhiệt Môn học (Tháng {selectedMonth})</h3>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-center text-sm">
+                        <thead>
+                            <tr>
+                                <th className="p-3 text-left font-semibold text-slate-600">Môn</th>
+                                {heatmapData.classes.map(cls => (
+                                    <th key={cls} className="p-3 font-semibold text-slate-600">{cls}</th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {heatmapData.grid.map(row => (
+                                <tr key={row.subject}>
+                                    <td className="p-3 text-left font-medium text-slate-700">{row.subject}</td>
+                                    {row.cells.map(cell => (
+                                        <td key={cell.class} className="p-2">
+                                            <div className={`rounded-lg px-3 py-2 font-bold text-sm ${cell.color}`}>
+                                                {cell.avg > 0 ? cell.avg : "-"}
+                                            </div>
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="mt-4 flex items-center justify-center gap-4 text-xs text-slate-500">
+                    <span className="flex items-center gap-1"><span className="w-4 h-4 rounded bg-emerald-500"></span> Giỏi (≥7.5)</span>
+                    <span className="flex items-center gap-1"><span className="w-4 h-4 rounded bg-yellow-400"></span> Khá (5.0-7.5)</span>
+                    <span className="flex items-center gap-1"><span className="w-4 h-4 rounded bg-red-500"></span> Yếu (&lt;5.0)</span>
+                </div>
+            </div>
+
+            {/* ==== Section 3: Value-Added Analysis ==== */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Early Warning System */}
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-red-100">
+                {/* Top 5 Improvers */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-200">
+                    <h3 className="text-lg font-bold text-emerald-800 mb-4">📈 Top 5 Học sinh Bứt phá</h3>
+                    {valueAddedData.topImprovers.length === 0 ? (
+                        <p className="text-slate-500 text-center py-4">Không đủ dữ liệu để so sánh.</p>
+                    ) : (
+                        <div className="space-y-3">
+                            {valueAddedData.topImprovers.map((item, idx) => (
+                                <div key={idx} className="flex items-center gap-3 p-3 bg-emerald-50 rounded-xl">
+                                    <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-sm">{idx + 1}</div>
+                                    <div className="flex-1">
+                                        <div className="font-medium text-slate-800">{item.student.name}</div>
+                                        <div className="text-xs text-slate-500">{item.student.class}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="font-bold text-emerald-600">+{item.delta.toFixed(1)}</div>
+                                        <div className="text-xs text-slate-500">{item.prevAvg.toFixed(1)} → {item.currAvg.toFixed(1)}</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Class Momentum */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h3 className="text-lg font-bold text-slate-700 mb-4">🏫 Đà Tiến bộ theo Lớp</h3>
+                    <div className="h-[280px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={valueAddedData.classData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
+                                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
+                                <RechartsTooltip
+                                    cursor={{ fill: '#f1f5f9' }}
+                                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                    formatter={(value) => {
+                                        const v = value as number | undefined;
+                                        return [v !== undefined && v > 0 ? `+${v}` : (v ?? 0), "TB Tăng/Giảm"];
+                                    }}
+                                />
+                                <Bar dataKey="avgDelta" name="TB Tăng/Giảm" radius={[4, 4, 0, 0]} barSize={40}>
+                                    {valueAddedData.classData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={entry.avgDelta >= 0 ? "#10b981" : "#ef4444"} />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            </div>
+
+            {/* ==== Section 4: Original Early Warning (with Ticks) & Habit Matrix ==== */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Early Warning System (Combined: Academic + Engagement) */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-orange-100">
                     <div className="flex items-center gap-2 mb-4">
-                        <AlertCircle className="text-red-600" />
-                        <h3 className="text-lg font-bold text-slate-700">Cảnh báo sớm (Tháng {selectedMonth})</h3>
+                        <AlertCircle className="text-orange-600" />
+                        <h3 className="text-lg font-bold text-slate-700">Cảnh báo sớm Tổng hợp (Tháng {selectedMonth})</h3>
                     </div>
                     <div className="overflow-y-auto max-h-[400px]">
                         <table className="w-full text-left text-sm">
-                            <thead className="bg-red-50 text-red-900 sticky top-0">
+                            <thead className="bg-orange-50 text-orange-900 sticky top-0">
                                 <tr>
                                     <th className="p-3 rounded-tl-lg">Học sinh</th>
                                     <th className="p-3">Lớp</th>
