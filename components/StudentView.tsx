@@ -212,8 +212,8 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
 
           {/* Main Dashboard Grid */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-            {/* Left Column: Charts & Analysis (8 cols) - order-2 on mobile to appear after sidebar */}
-            <div className="xl:col-span-8 space-y-8 order-2 xl:order-1">
+            {/* Left Column: Charts & Analysis (8 cols) */}
+            <div className="xl:col-span-8 space-y-8">
 
               {/* Charts Section */}
               <div className="grid md:grid-cols-2 gap-6">
@@ -325,8 +325,8 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
               </div>
             </div>
 
-            {/* Right Column: Sidebar (4 cols) - order-1 on mobile to appear FIRST (before Daily Habits) */}
-            <div className="xl:col-span-4 space-y-8 order-1 xl:order-2">
+            {/* Right Column: Sidebar (4 cols) */}
+            <div className="xl:col-span-4 space-y-8">
               {/* AI Mentor Card (High Emphasis) */}
               <div className="relative group overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#4f46e5] to-[#7c3aed] text-white p-8 shadow-2xl shadow-indigo-500/30">
                 <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full blur-[50px] -mr-10 -mt-10 animate-pulse-slow" />
@@ -344,82 +344,80 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                 </div>
               </div>
 
-              {/* Leaderboard & Targets */}
-              <div className="space-y-6">
-                <Leaderboard
-                  leaderboardClass={student.dashboardStats?.leaderboardClass || {}}
-                  leaderboardGrade={student.dashboardStats?.leaderboardGrade || {}}
-                  currentMhs={student.mhs}
-                  month={selectedTaskMonthSafe}
-                />
+              {/* Leaderboard */}
+              <Leaderboard
+                leaderboardClass={student.dashboardStats?.leaderboardClass || {}}
+                leaderboardGrade={student.dashboardStats?.leaderboardGrade || {}}
+                currentMhs={student.mhs}
+                month={selectedTaskMonthSafe}
+              />
 
-                {/* Next Target */}
-                {student.dashboardStats?.nextExamTargets && (
-                  <div className="bg-white/80 backdrop-blur-xl border border-white/60 p-6 rounded-3xl shadow-lg relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-2 h-full bg-gradient-to-b from-amber-400 to-orange-500" />
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="p-2.5 bg-orange-100 text-orange-600 rounded-xl">
-                        <Target size={20} />
-                      </div>
-                      <div>
-                        <div className="font-bold text-slate-800">Mục tiêu Tiếp theo</div>
-                        <div className="text-xs text-slate-500">Next Exam Targets</div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      {[
-                        { l: 'Toán', v: student.dashboardStats.nextExamTargets.math, c: 'text-blue-600 bg-blue-50' },
-                        { l: 'Văn', v: student.dashboardStats.nextExamTargets.lit, c: 'text-pink-600 bg-pink-50' },
-                        { l: 'Anh', v: student.dashboardStats.nextExamTargets.eng, c: 'text-violet-600 bg-violet-50' }
-                      ].map(item => (
-                        <div key={item.l} className={`${item.c} p-3 rounded-2xl text-center flex flex-col items-center justify-center min-h-[80px]`}>
-                          <span className="text-[10px] font-bold uppercase opacity-60 mb-1">{item.l}</span>
-                          <span className="text-2xl font-black tracking-tight">{item.v}</span>
-                        </div>
-                      ))}
-                    </div>
+              {/* Study Plan (moved up: right after Leaderboard) */}
+              <div className="bg-white/80 backdrop-blur-xl border border-white/60 p-6 rounded-3xl shadow-lg">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2.5 bg-slate-100 text-slate-600 rounded-xl">
+                    <CalendarCheck size={20} />
                   </div>
-                )}
-
-                {/* New Study Plan UI */}
-                <div className="bg-white/80 backdrop-blur-xl border border-white/60 p-6 rounded-3xl shadow-lg">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2.5 bg-slate-100 text-slate-600 rounded-xl">
-                      <CalendarCheck size={20} />
-                    </div>
-                    <div className="font-bold text-slate-800">Kế hoạch 2 Tuần</div>
-                  </div>
-
-                  {!ai?.studyPlan?.length ? (
-                    <div className="text-sm text-slate-400 italic text-center py-4">Chưa có kế hoạch.</div>
-                  ) : (
-                    <div className="space-y-4">
-                      {planByDay.slice(0, 3).map(([day, items]) => (
-                        <div key={day} className="relative pl-4 border-l-2 border-slate-100">
-                          <div className="absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full bg-indigo-500 ring-4 ring-white" />
-                          <div className="text-xs font-bold text-indigo-600 uppercase mb-2">{day}</div>
-                          <div className="space-y-2">
-                            {items.map((p, idx) => (
-                              <div key={idx} className="text-sm text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                <span className="font-bold text-slate-800 mr-2">[{p.subject}]</span>
-                                {p.content}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                      {planByDay.length > 3 && (
-                        <div className="text-center">
-                          <button className="text-xs font-bold text-indigo-600 hover:underline">Xem thêm...</button>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <div className="font-bold text-slate-800">Kế hoạch 2 Tuần</div>
                 </div>
 
-                {/* Password Change */}
-                <StudentChangePassword />
+                {!ai?.studyPlan?.length ? (
+                  <div className="text-sm text-slate-400 italic text-center py-4">Chưa có kế hoạch.</div>
+                ) : (
+                  <div className="space-y-4">
+                    {planByDay.slice(0, 3).map(([day, items]) => (
+                      <div key={day} className="relative pl-4 border-l-2 border-slate-100">
+                        <div className="absolute -left-[5px] top-0 w-2.5 h-2.5 rounded-full bg-indigo-500 ring-4 ring-white" />
+                        <div className="text-xs font-bold text-indigo-600 uppercase mb-2">{day}</div>
+                        <div className="space-y-2">
+                          {items.map((p, idx) => (
+                            <div key={idx} className="text-sm text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                              <span className="font-bold text-slate-800 mr-2">[{p.subject}]</span>
+                              {p.content}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {planByDay.length > 3 && (
+                      <div className="text-center">
+                        <button className="text-xs font-bold text-indigo-600 hover:underline">Xem thêm...</button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
+
+              {/* Next Target */}
+              {student.dashboardStats?.nextExamTargets && (
+                <div className="bg-white/80 backdrop-blur-xl border border-white/60 p-6 rounded-3xl shadow-lg relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-2 h-full bg-gradient-to-b from-amber-400 to-orange-500" />
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2.5 bg-orange-100 text-orange-600 rounded-xl">
+                      <Target size={20} />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800">Mục tiêu Tiếp theo</div>
+                      <div className="text-xs text-slate-500">Next Exam Targets</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { l: 'Toán', v: student.dashboardStats.nextExamTargets.math, c: 'text-blue-600 bg-blue-50' },
+                      { l: 'Văn', v: student.dashboardStats.nextExamTargets.lit, c: 'text-pink-600 bg-pink-50' },
+                      { l: 'Anh', v: student.dashboardStats.nextExamTargets.eng, c: 'text-violet-600 bg-violet-50' }
+                    ].map(item => (
+                      <div key={item.l} className={`${item.c} p-3 rounded-2xl text-center flex flex-col items-center justify-center min-h-[80px]`}>
+                        <span className="text-[10px] font-bold uppercase opacity-60 mb-1">{item.l}</span>
+                        <span className="text-2xl font-black tracking-tight">{item.v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Password Change */}
+              <StudentChangePassword />
             </div>
           </div>
         </main>
