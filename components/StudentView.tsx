@@ -2,7 +2,7 @@
 import StudentChangePassword from "./StudentChangePassword";
 import React, { useMemo, useState, useEffect } from "react";
 import type { Student, ScoreData, StudyAction } from "../types";
-import { LogOut, CalendarCheck, Check, ChevronLeft, ChevronRight, Trophy, Award, Target, Sparkles, TrendingUp, BookOpen, AlertCircle } from "lucide-react";
+import { LogOut, CalendarCheck, Check, ChevronLeft, ChevronRight, Trophy, Award, Target, Sparkles, TrendingUp, BookOpen, AlertCircle, Star } from "lucide-react";
 import ScoreChart from "./ScoreChart";
 import Header from "./Header";
 import OverviewCards from "./OverviewCards";
@@ -157,11 +157,6 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
   }, []);
 
   const dailyActions = useMemo(() => getActionsForMonth(student, selectedTaskMonthSafe), [student, selectedTaskMonthSafe]);
-  const trackingDates = useMemo(() => {
-    if (trackingMode === "month") return getMonthDates(selectedTaskMonthSafe);
-    return getLastNDays(rangeDays).filter((d) => d.slice(0, 7) === selectedTaskMonthSafe);
-  }, [trackingMode, rangeDays, selectedTaskMonthSafe]);
-  const trackingActions = useMemo(() => getActionsForMonth(student, selectedTaskMonthSafe), [student, selectedTaskMonthSafe]);
 
   const ai = student.aiReport;
   const planByDay = useMemo(() => {
