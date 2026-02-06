@@ -1,9 +1,10 @@
+```
 import React, { useState, useMemo, useEffect } from "react";
 import { User, Student, ScoreData, StudyAction, AIReport } from "../types";
 import { LogOut, Users, School, LayoutDashboard, Menu, X, RefreshCw, AlertCircle, Edit, Trash2, GraduationCap, ClipboardList, BarChart as BarChartIcon } from "lucide-react";
 import { api, generateStudentReport } from "../services/clientApi";
-import {
-    LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, AreaChart, Area
+import { 
+    LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, AreaChart, Area, ScatterChart, Scatter, ZAxis, ReferenceLine 
 } from "recharts";
 
 // Teacher Components Re-use
@@ -35,7 +36,7 @@ function nextMonthKey(monthKey: string): string {
     let m = parseInt(mStr, 10);
     m += 1;
     if (m === 13) { m = 1; y += 1; }
-    return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}`;
+    return `${ String(y).padStart(4, "0") } -${ String(m).padStart(2, "0") } `;
 }
 function latestScoreMonth(st?: Student) {
     const scores = Array.isArray(st?.scores) ? st!.scores : [];
@@ -78,7 +79,7 @@ export default function AdminView({ user, students, onLogout, onImportData, onUp
             {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
             {/* Sidebar */}
-            <aside className={`fixed md:sticky top-0 h-screen w-64 bg-slate-900 text-white flex flex-col z-40 transition-transform duration-300 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}>
+            <aside className={`fixed md:sticky top - 0 h - screen w - 64 bg - slate - 900 text - white flex flex - col z - 40 transition - transform duration - 300 ${ isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0" } `}>
                 <div className="p-6 border-b border-slate-800 flex justify-between items-center">
                     <div>
                         <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Admin Portal</h1>
@@ -194,7 +195,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
             const report = await generateStudentReport(student);
             const monthKey = inferredTaskMonth(student);
             const newActions: StudyAction[] = (report.actions || []).map((a: any, idx: number) => ({
-                id: `${student.mhs}-${Date.now()}-${idx}`,
+                id: `${ student.mhs } -${ Date.now() } -${ idx } `,
                 description: a.description,
                 frequency: a.frequency,
                 ticks: [],
@@ -207,7 +208,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
     const handleBulkGenerate = async () => {
         const targets = filteredStudents.filter((s) => selectedMhs.has(s.mhs));
         if (!targets.length) { alert("Chưa chọn học sinh"); return; }
-        if (!confirm(`Tạo báo cáo cho ${targets.length} học sinh?`)) return;
+        if (!confirm(`Tạo báo cáo cho ${ targets.length } học sinh ? `)) return;
 
         setBulkProgress({ current: 0, total: targets.length, currentName: "" });
         for (let i = 0; i < targets.length; i++) {
@@ -237,7 +238,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
             });
             const data = await res.json();
             if (data.monthsSynced && data.monthsSynced.length > 0) {
-                alert(`Đồng bộ xong ${data.students} HS`);
+                alert(`Đồng bộ xong ${ data.students } HS`);
                 window.location.reload();
             } else {
                 setSyncMonthsAll(data.monthsAll || []);
@@ -258,7 +259,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
             });
             const data = await res.json();
             if (data.ok) {
-                alert(`Đồng bộ xong ${data.students} HS`);
+                alert(`Đồng bộ xong ${ data.students } HS`);
                 window.location.reload();
             } else { alert(data.error); }
         } catch { alert("Lỗi kết nối"); } finally { setIsSyncing(false); setSyncModalOpen(false); }
@@ -308,7 +309,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
             });
             const newList = Array.from(studentMap.values());
             onImportData(newList);
-            alert(`Nhập xong ${newList.length} HS`);
+            alert(`Nhập xong ${ newList.length } HS`);
         };
         reader.readAsBinaryString(file);
     }
@@ -360,7 +361,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
 
 function SidebarItem({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
     return (
-        <button onClick={onClick} className={`w-full flex items-center gap-3 p-3 rounded-lg transition-all ${active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}>
+        <button onClick={onClick} className={`w - full flex items - center gap - 3 p - 3 rounded - lg transition - all ${ active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50" : "text-slate-400 hover:bg-slate-800 hover:text-white" } `}>
             {icon} <span className="font-medium">{label}</span>
         </button>
     );
@@ -378,7 +379,7 @@ function AdminDashboardTab({ students }: { students: Student[] }) {
         setSyncing(true); setSyncMsg("");
         try {
             const res = await api.syncSheet({ mode: "new_only" }) as any;
-            if (res.ok) setSyncMsg(`✅ Đồng bộ thành công! +${res.newMonthsDetected?.length || 0} tháng mới.`);
+            if (res.ok) setSyncMsg(`✅ Đồng bộ thành công! + ${ res.newMonthsDetected?.length || 0 } tháng mới.`);
             else setSyncMsg("❌ Lỗi: " + (res.error || "Không xác định"));
         } catch (e: any) { setSyncMsg("❌ Lỗi kết nối: " + e.message); } finally { setSyncing(false); }
     };
@@ -400,7 +401,7 @@ function AdminDashboardTab({ students }: { students: Student[] }) {
                             <button onClick={handleSync} disabled={syncing} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                                 {syncing ? "Đang xử lý..." : "Đồng bộ ngay"}
                             </button>
-                            {syncMsg && <span className={`text-sm font-medium ${syncMsg.startsWith("❌") ? "text-red-600" : "text-emerald-600"}`}>{syncMsg}</span>}
+                            {syncMsg && <span className={`text - sm font - medium ${ syncMsg.startsWith("❌") ? "text-red-600" : "text-emerald-600" } `}>{syncMsg}</span>}
                         </div>
                     </div>
                 </div>
@@ -419,7 +420,7 @@ function AdminUsersTab() {
     ]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
-    const handleDelete = (username: string) => { if (confirm(`Xóa ${username}?`)) setUsers(users.filter((u) => u.username !== username)); };
+    const handleDelete = (username: string) => { if (confirm(`Xóa ${ username }?`)) setUsers(users.filter((u) => u.username !== username)); };
     const handleEdit = (user: AdminUser) => { setEditingUser(user); setIsModalOpen(true); };
     const handleSave = (user: AdminUser) => {
         if (editingUser) setUsers(users.map(u => u.username === user.username ? user : u));
@@ -447,7 +448,7 @@ function AdminUsersTab() {
                             {users.map((u) => (
                                 <tr key={u.username} className="hover:bg-slate-50">
                                     <td className="px-6 py-4">{u.name}</td><td className="px-6 py-4 text-slate-500">{u.username}</td>
-                                    <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs font-bold ${u.role === "ADMIN" ? "bg-purple-100 text-purple-700" : "bg-emerald-100 text-emerald-700"}`}>{u.role}</span></td>
+                                    <td className="px-6 py-4"><span className={`px - 2 py - 1 rounded text - xs font - bold ${ u.role === "ADMIN" ? "bg-purple-100 text-purple-700" : "bg-emerald-100 text-emerald-700" } `}>{u.role}</span></td>
                                     <td className="px-6 py-4 text-right space-x-2"><button onClick={() => handleEdit(u)} className="p-2 text-blue-600 hover:bg-blue-50 rounded"><Edit size={16} /></button><button onClick={() => handleDelete(u.username)} className="p-2 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button></td>
                                 </tr>
                             ))}
@@ -484,7 +485,7 @@ function AdminClassesTab() {
     const [classes, setClasses] = useState<ClassItem[]>([{ id: "10A1", name: "10A1", teacherId: "gv01", studentCount: 35 }, { id: "11A2", name: "11A2", teacherId: "gv02", studentCount: 32 }]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const handleAddClass = (cls: ClassItem) => { setClasses([...classes, cls]); setIsModalOpen(false); };
-    const handleDelete = (id: string) => { if (confirm(`Xóa lớp ${id}?`)) setClasses(classes.filter((c) => c.id !== id)); };
+    const handleDelete = (id: string) => { if (confirm(`Xóa lớp ${ id }?`)) setClasses(classes.filter((c) => c.id !== id)); };
     return (
         <div className="space-y-6 max-w-5xl mx-auto">
             <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-slate-800">Quản lý Lớp học (Demo)</h2><button onClick={() => setIsModalOpen(true)} className="bg-purple-600 text-white px-4 py-2 rounded-xl flex items-center gap-2"><School size={18} /><span>Thêm lớp</span></button></div>
@@ -505,7 +506,7 @@ function ClassModal({ onClose, onSave }: { onClose: () => void; onSave: (c: Clas
 
 function StatCard({ label, value, color }: { label: string; value: string | number; color: "blue" | "purple" | "emerald" }) {
     const colorStyles = { blue: "bg-blue-50 text-blue-700 border-blue-100", purple: "bg-purple-50 text-purple-700 border-purple-100", emerald: "bg-emerald-50 text-emerald-700 border-emerald-100" }
-    return <div className={`p-6 rounded-2xl border ${colorStyles[color]}`}><div className="text-sm font-medium opacity-80">{label}</div><div className="text-4xl font-bold mt-2">{value}</div></div>
+    return <div className={`p - 6 rounded - 2xl border ${ colorStyles[color] } `}><div className="text-sm font-medium opacity-80">{label}</div><div className="text-4xl font-bold mt-2">{value}</div></div>
 }
 
 // --- Admin Analytics Tab ---
@@ -588,15 +589,160 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
         })).sort((a, b) => b.avgTicks - a.avgTicks);
     }, [students, selectedMonth]);
 
+    // 3. Early Warning System (Data Calc)
+    const riskData = useMemo(() => {
+        const risks: { student: Student, reason: string, type: "ACADEMIC" | "ENGAGEMENT" }[] = [];
+        const monthKey = selectedMonth;
+
+        students.forEach(s => {
+            // Find score for selected month
+            const currentScoreObj = s.scores.find(sc => sc.month === monthKey);
+            
+            // Check Academic Risk
+            if (currentScoreObj) {
+                const MATH = currentScoreObj.math || 0;
+                const LIT = currentScoreObj.lit || 0;
+                const ENG = currentScoreObj.eng || 0;
+                const avg = (MATH + LIT + ENG) / 3;
+
+                // Rule 1: Low Avg
+                if (avg < 5.0 && avg > 0) {
+                    risks.push({ student: s, reason: `Điểm TB thấp(${ avg.toFixed(1) })`, type: "ACADEMIC" });
+                }
+
+                // Rule 2: Score Drop (Access previous month)
+                // This is tricky without strict month ordering, simplified check:
+                // Find a score entry that is "previous" to current? 
+                // Let's look at index in s.scores. 
+                const idx = s.scores.findIndex(sc => sc.month === monthKey);
+                if (idx > 0) {
+                     const prevScoreObj = s.scores[idx - 1];
+                     const prevAvg = ((prevScoreObj.math || 0) + (prevScoreObj.lit || 0) + (prevScoreObj.eng || 0)) / 3;
+                     if (prevAvg - avg > 1.5) {
+                         risks.push({ student: s, reason: `Tụt điểm nhanh(-${(prevAvg - avg).toFixed(1)})`, type: "ACADEMIC" });
+                     }
+                }
+            }
+
+            // Check Engagement Risk
+            // Calc current month ticks
+            const taskMonth = inferredTaskMonth(s);
+            const abm = safeActionsByMonth(s);
+            const actions = abm[monthKey] || (monthKey === taskMonth ? s.activeActions : []);
+            let ticksCount = 0;
+            if (Array.isArray(actions)) actions.forEach(a => ticksCount += (a.ticks || []).filter(t => t.completed).length);
+
+            // Simple heuristic: If ticks < 5 in a whole month (and month has passed > 10 days? - ignored for simplicity)
+            if (ticksCount < 5) {
+                risks.push({ student: s, reason: "Rất ít hoạt động (Ticks < 5)", type: "ENGAGEMENT" });
+            }
+        });
+        return risks;
+    }, [students, selectedMonth]);
+
+    // 4. Habit Matrix Data
+    const scatterData = useMemo(() => {
+        return students.map(s => {
+            const taskMonth = inferredTaskMonth(s);
+            const abm = safeActionsByMonth(s);
+            const actions = abm[selectedMonth] || (selectedMonth === taskMonth ? s.activeActions : []);
+            let ticksCount = 0;
+            if (Array.isArray(actions)) actions.forEach(a => ticksCount += (a.ticks || []).filter(t => t.completed).length);
+
+            const scoreObj = s.scores.find(sc => sc.month === selectedMonth);
+            const avg = scoreObj ? ((scoreObj.math || 0) + (scoreObj.lit || 0) + (scoreObj.eng || 0)) / 3 : 0;
+            
+            if (avg === 0 && ticksCount === 0) return null; // Skip empty data
+            return { x: ticksCount, y: parseFloat(avg.toFixed(1)), name: s.name, class: s.class, mhs: s.mhs };
+        }).filter(Boolean);
+    }, [students, selectedMonth]);
+
     return (
         <div className="p-4 md:p-8 space-y-8 animate-in fade-in">
             <h2 className="text-2xl font-bold text-slate-800">Báo cáo & Thống kê</h2>
 
+            {/* NEW: Early Warning & Habit Matrix */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Early Warning System */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-red-100">
+                    <div className="flex items-center gap-2 mb-4">
+                        <AlertCircle className="text-red-600" />
+                        <h3 className="text-lg font-bold text-slate-700">Cảnh báo sớm (Tháng {selectedMonth})</h3>
+                    </div>
+                    <div className="overflow-y-auto max-h-[400px]">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-red-50 text-red-900 sticky top-0">
+                                <tr>
+                                    <th className="p-3 rounded-tl-lg">Học sinh</th>
+                                    <th className="p-3">Lớp</th>
+                                    <th className="p-3 rounded-tr-lg">Vấn đề</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {riskData.length === 0 ? (
+                                    <tr><td colSpan={3} className="p-4 text-center text-slate-500">Không có học sinh nào trong mức cảnh báo. Tốt!</td></tr>
+                                ) : (
+                                    riskData.map((r, idx) => (
+                                        <tr key={idx} className="hover:bg-slate-50">
+                                            <td className="p-3 font-medium">{r.student.name}</td>
+                                            <td className="p-3 text-slate-500">{r.student.class}</td>
+                                            <td className="p-3">
+                                                <span className={`px - 2 py - 1 rounded text - xs font - bold ${ r.type === "ACADEMIC" ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700" } `}>
+                                                    {r.reason}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {/* Habit Impact Matrix */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <h3 className="text-lg font-bold text-slate-700 mb-4">Ma trận Tương quan: Thói quen vs Điểm số</h3>
+                     <div className="h-[400px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis type="number" dataKey="x" name="Tasks Completed" unit=" ticks" label={{ value: 'Số Tick (Chăm chỉ)', position: 'insideBottom', offset: -10 }} />
+                                <YAxis type="number" dataKey="y" name="Avg Score" unit=" đ" label={{ value: 'Điểm TB', angle: -90, position: 'insideLeft' }} domain={[0, 10]} />
+                                <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
+                                    if (active && payload && payload.length) {
+                                        const d = payload[0].payload;
+                                        return (
+                                            <div className="bg-white p-2 border border-slate-200 shadow-lg rounded text-xs">
+                                                <strong>{d.name} ({d.class})</strong>
+                                                <div>Tick: {d.x} | Điểm: {d.y}</div>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                }} />
+                                <ReferenceLine x={20} stroke="#94a3b8" strokeDasharray="3 3" />
+                                <ReferenceLine y={6.5} stroke="#94a3b8" strokeDasharray="3 3" />
+                                <Scatter name="Students" data={scatterData} fill="#8884d8">
+                                    {scatterData.map((entry, index) => {
+                                        const e = entry as any;
+                                        // Color logic: High Tick + High Score = Green, Low Tick + Low Score = Red
+                                        let fill = "#94a3b8"; // Gray default
+                                        if (e.x > 20 && e.y >= 7) fill = "#10b981"; // Excellent
+                                        if (e.x < 10 && e.y < 5) fill = "#ef4444"; // Bad
+                                        if (e.x > 20 && e.y < 6) fill = "#f59e0b"; // Needs Strategy
+                                        if (e.x < 10 && e.y >= 7) fill = "#8b5cf6"; // Talented/Lucky
+                                        return <cell key={`cell - ${ index } `} fill={fill} />;
+                                    })}
+                                </Scatter>
+                            </ScatterChart>
+                        </ResponsiveContainer>
+                    </div>
+                </div>
+            </div>
+
             {/* Chart 1: Academic Performance Trends */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                 <h3 className="text-lg font-bold text-slate-700 mb-4">Biến động Điểm số (TB Khối)</h3>
-                <div className="h-[300px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={scoreTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                             <defs>
                                 <linearGradient id="colorAvg" x1="0" y1="0" x2="0" y2="1">
