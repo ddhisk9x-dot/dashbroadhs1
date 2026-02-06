@@ -141,7 +141,26 @@ export default function ScoreChart({ data, stats, subject }: Props) {
                 name={`Điểm ${conf?.label}`}
                 stroke={conf?.color}
                 strokeWidth={3}
-                dot={{ r: 4, strokeWidth: 2, fill: "#fff", stroke: conf?.color }}
+                dot={(props: any) => {
+                  const { cx, cy, payload } = props;
+                  const score = payload[subject] as number;
+                  // Determine target key based on subject
+                  const targetKey = subject === "math" ? "targetMath" : subject === "lit" ? "targetLit" : "targetEng";
+                  const target = payload[targetKey] as number;
+
+                  const isTargetMet = typeof score === "number" && typeof target === "number" && score >= target;
+
+                  if (isTargetMet) {
+                    return (
+                      <svg x={cx - 10} y={cy - 10} width={20} height={20} viewBox="0 0 24 24" fill="#EAB308" stroke="#EAB308" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                      </svg>
+                    );
+                  }
+                  return (
+                    <circle cx={cx} cy={cy} r={4} stroke={conf?.color} strokeWidth={2} fill="#fff" />
+                  );
+                }}
                 activeDot={{ r: 6, strokeWidth: 0, fill: conf?.color }}
                 animationDuration={1500}
               />
