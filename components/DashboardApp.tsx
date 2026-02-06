@@ -249,7 +249,15 @@ export default function DashboardApp() {
   }
 
   if (view === "ADMIN" && user) {
-    return <AdminView user={user} students={students} onLogout={onLogout} />;
+    return (
+      <AdminView
+        user={user}
+        students={students}
+        onLogout={onLogout}
+        onImportData={onImportData}
+        onUpdateStudentReport={onUpdateStudentReport}
+      />
+    );
   }
 
   // Fallback for TEACHER
