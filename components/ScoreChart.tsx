@@ -63,9 +63,52 @@ const ScoreChart: React.FC<ScoreChartProps> = ({ data, stats, subject }) => {
           />
           <Legend wrapperStyle={{ paddingTop: '20px' }} />
 
-          {showMath && <Line connectNulls={false} type="monotone" dataKey="math" name="Toán" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 7, strokeWidth: 0 }} />}
-          {showLit && <Line connectNulls={false} type="monotone" dataKey="lit" name="Văn" stroke="#ec4899" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 7, strokeWidth: 0 }} />}
-          {showEng && <Line connectNulls={false} type="monotone" dataKey="eng" name="Anh" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 7, strokeWidth: 0 }} />}
+          {/* Custom Dot for highlighting Target Achievements */}
+          {showMath && <Line connectNulls={false} type="monotone" dataKey="math" name="Toán" stroke="#3b82f6" strokeWidth={3}
+            dot={(props: any) => {
+              const { cx, cy, payload, value } = props;
+              const isTargetReached = typeof value === 'number' && typeof payload.targetMath === 'number' && value >= payload.targetMath;
+              if (isTargetReached) {
+                return (
+                  <svg x={cx - 10} y={cy - 10} width={20} height={20} viewBox="0 0 24 24" fill="#fbbf24" stroke="#d97706" strokeWidth="2">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                  </svg>
+                );
+              }
+              return <circle cx={cx} cy={cy} r={4} stroke="#3b82f6" strokeWidth={2} fill="#fff" />;
+            }}
+            activeDot={{ r: 7, strokeWidth: 0 }}
+          />}
+          {showLit && <Line connectNulls={false} type="monotone" dataKey="lit" name="Văn" stroke="#ec4899" strokeWidth={3}
+            dot={(props: any) => {
+              const { cx, cy, payload, value } = props;
+              const isTargetReached = typeof value === 'number' && typeof payload.targetLit === 'number' && value >= payload.targetLit;
+              if (isTargetReached) {
+                return (
+                  <svg x={cx - 10} y={cy - 10} width={20} height={20} viewBox="0 0 24 24" fill="#fbbf24" stroke="#d97706" strokeWidth="2">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                  </svg>
+                );
+              }
+              return <circle cx={cx} cy={cy} r={4} stroke="#ec4899" strokeWidth={2} fill="#fff" />;
+            }}
+            activeDot={{ r: 7, strokeWidth: 0 }}
+          />}
+          {showEng && <Line connectNulls={false} type="monotone" dataKey="eng" name="Anh" stroke="#8b5cf6" strokeWidth={3}
+            dot={(props: any) => {
+              const { cx, cy, payload, value } = props;
+              const isTargetReached = typeof value === 'number' && typeof payload.targetEng === 'number' && value >= payload.targetEng;
+              if (isTargetReached) {
+                return (
+                  <svg x={cx - 10} y={cy - 10} width={20} height={20} viewBox="0 0 24 24" fill="#fbbf24" stroke="#d97706" strokeWidth="2">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                  </svg>
+                );
+              }
+              return <circle cx={cx} cy={cy} r={4} stroke="#8b5cf6" strokeWidth={2} fill="#fff" />;
+            }}
+            activeDot={{ r: 7, strokeWidth: 0 }}
+          />}
 
           {showMath && <Line connectNulls={false} type="monotone" dataKey="gradeMath" name="TB Khối Toán" stroke="#3b82f6" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />}
           {showLit && <Line connectNulls={false} type="monotone" dataKey="gradeLit" name="TB Khối Văn" stroke="#ec4899" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />}

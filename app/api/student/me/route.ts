@@ -214,9 +214,9 @@ export async function GET() {
       const dist = cappedBase - gAvg;
       if (dist < -1) baseGrowth += 0.2; // Push to catch up
 
-      // AI risk adjustment
-      if (hasRisk) baseGrowth = Math.max(0.2, baseGrowth - 0.2);
-      if (riskLevel === "Cao") baseGrowth = Math.max(0.1, baseGrowth * 0.7);
+      // AI risk adjustment - User feedback: reduce impact slightly
+      if (hasRisk) baseGrowth = Math.max(0.3, baseGrowth - 0.1); // Reduced penalty
+      if (riskLevel === "Cao") baseGrowth = Math.max(0.15, baseGrowth * 0.85); // Less aggressive reduction
 
       let target = cappedBase + baseGrowth;
 
@@ -252,7 +252,7 @@ export async function GET() {
     let growth = 0.5;
     if (trend > 0) growth += 0.25; // Good trend, push a bit more
     if (lastScore < 10) growth += 0.25; // Lower scores have more room to grow
-    if (hasRisk) growth = Math.max(0.3, growth - 0.2);
+    if (hasRisk) growth = Math.max(0.4, growth - 0.1); // Reduced risk penalty here too
 
     return parseFloat(Math.min(15, lastScore + growth).toFixed(1));
   };
@@ -264,13 +264,13 @@ export async function GET() {
     const avgScore = ((lastSc.math || 0) + (lastSc.lit || 0) + (lastSc.eng || 0)) / 3;
 
     if (riskLevel === "Cao") {
-      return "Cần tập trung cải thiện các môn yếu. Mục tiêu này được tính toán phù hợp với khả năng!";
+      return "CẢNH BÁO: Phong độ đang ở mức báo động! Cần chấn chỉnh ngay lập tức để không bị bỏ lại phía sau.";
     } else if (avgScore >= 12) {
-      return "Xuất sắc! Duy trì phong độ và thử thách bản thân với mục tiêu cao hơn!";
+      return "Xuất sắc! Nhưng đừng ngủ quên trên chiến thắng. Hãy hướng tới sự hoàn hảo tuyệt đối!";
     } else if (avgScore >= 9) {
-      return "Đang tiến bộ tốt! Mục tiêu này vừa tầm với nhưng vẫn đầy thử thách!";
+      return "Đang làm tốt, nhưng chưa đủ để an toàn. Hãy tăng tốc để bứt phá khỏi nhóm trung bình!";
     } else {
-      return "Hãy từng bước cải thiện. Mục tiêu được đặt phù hợp để bạn đạt được!";
+      return "Kết quả này chưa đạt yêu cầu của bản thân. Cần nghiêm túc xem lại phương pháp học tập ngay!";
     }
   };
 
