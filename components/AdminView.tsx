@@ -78,7 +78,7 @@ export default function AdminView({ user, students, onLogout, onImportData, onUp
             {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
 
             {/* Sidebar */}
-            <aside className={`fixed md:sticky top - 0 h - screen w - 64 bg - slate - 900 text - white flex flex - col z - 40 transition - transform duration - 300 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"} `}>
+            <aside className={`fixed md:sticky top-0 h-screen w-64 bg-slate-900 text-white flex flex-col z-40 transition-transform duration-300 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}>
                 <div className="p-6 border-b border-slate-800 flex justify-between items-center">
                     <div>
                         <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Admin Portal</h1>
@@ -194,7 +194,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
             const report = await generateStudentReport(student);
             const monthKey = inferredTaskMonth(student);
             const newActions: StudyAction[] = (report.actions || []).map((a: any, idx: number) => ({
-                id: `${student.mhs} -${Date.now()} -${idx} `,
+                id: `${student.mhs}-${Date.now()}-${idx}`,
                 description: a.description,
                 frequency: a.frequency,
                 ticks: [],
@@ -207,7 +207,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
     const handleBulkGenerate = async () => {
         const targets = filteredStudents.filter((s) => selectedMhs.has(s.mhs));
         if (!targets.length) { alert("Chưa chọn học sinh"); return; }
-        if (!confirm(`Tạo báo cáo cho ${targets.length} học sinh ? `)) return;
+        if (!confirm(`Tạo báo cáo cho ${targets.length} học sinh?`)) return;
 
         setBulkProgress({ current: 0, total: targets.length, currentName: "" });
         for (let i = 0; i < targets.length; i++) {
@@ -324,14 +324,13 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
                 onSelectAll={() => setSyncSelectedMonths(new Set(syncMonthsAll))} onClearAll={() => setSyncSelectedMonths(new Set())}
                 onSubmit={handleSubmitSync} isSyncing={isSyncing} isTeacher={isTeacher}
             />
-            {/* Using TeacherHeader directly ensures UI parity */}
             <TeacherHeader
                 searchTerm={searchTerm} onSearchChange={setSearchTerm}
                 filterClass={filterClass} onFilterClassChange={setFilterClass} uniqueClasses={uniqueClasses}
                 sortTicks={sortTicks} onSortTicksChange={setSortTicks}
                 isTeacher={isTeacher} teacherClass={teacherClass}
                 visibleStudents={visibleStudents}
-                onLogout={() => { }} // Logout handled by Admin Sidebar
+                onLogout={() => { }}
                 onBulkGenerate={handleBulkGenerate} onSyncSheet={handleSyncSheet} onFileUpload={handleFileUpload}
                 isSyncing={isSyncing} isBulkProcessing={!!bulkProgress}
             />
@@ -360,13 +359,12 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
 
 function SidebarItem({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
     return (
-        <button onClick={onClick} className={`w - full flex items - center gap - 3 p - 3 rounded - lg transition - all ${active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50" : "text-slate-400 hover:bg-slate-800 hover:text-white"} `}>
+        <button onClick={onClick} className={`w-full flex items-center gap-3 p-3 rounded-lg transition-all ${active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/50" : "text-slate-400 hover:bg-slate-800 hover:text-white"}`}>
             {icon} <span className="font-medium">{label}</span>
         </button>
     );
 }
 
-// ... (Rest of existing Admin Components: AdminDashboardTab, AdminUsersTab, UserModal, AdminClassesTab, ClassModal, StatCard)
 function AdminDashboardTab({ students }: { students: Student[] }) {
     const totalStudents = students.length;
     const totalClasses = new Set(students.map(s => s.class)).size;
@@ -400,7 +398,7 @@ function AdminDashboardTab({ students }: { students: Student[] }) {
                             <button onClick={handleSync} disabled={syncing} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
                                 {syncing ? "Đang xử lý..." : "Đồng bộ ngay"}
                             </button>
-                            {syncMsg && <span className={`text - sm font - medium ${syncMsg.startsWith("❌") ? "text-red-600" : "text-emerald-600"} `}>{syncMsg}</span>}
+                            {syncMsg && <span className={`text-sm font-medium ${syncMsg.startsWith("❌") ? "text-red-600" : "text-emerald-600"}`}>{syncMsg}</span>}
                         </div>
                     </div>
                 </div>
@@ -447,7 +445,7 @@ function AdminUsersTab() {
                             {users.map((u) => (
                                 <tr key={u.username} className="hover:bg-slate-50">
                                     <td className="px-6 py-4">{u.name}</td><td className="px-6 py-4 text-slate-500">{u.username}</td>
-                                    <td className="px-6 py-4"><span className={`px - 2 py - 1 rounded text - xs font - bold ${u.role === "ADMIN" ? "bg-purple-100 text-purple-700" : "bg-emerald-100 text-emerald-700"} `}>{u.role}</span></td>
+                                    <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs font-bold ${u.role === "ADMIN" ? "bg-purple-100 text-purple-700" : "bg-emerald-100 text-emerald-700"}`}>{u.role}</span></td>
                                     <td className="px-6 py-4 text-right space-x-2"><button onClick={() => handleEdit(u)} className="p-2 text-blue-600 hover:bg-blue-50 rounded"><Edit size={16} /></button><button onClick={() => handleDelete(u.username)} className="p-2 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16} /></button></td>
                                 </tr>
                             ))}
@@ -505,7 +503,7 @@ function ClassModal({ onClose, onSave }: { onClose: () => void; onSave: (c: Clas
 
 function StatCard({ label, value, color }: { label: string; value: string | number; color: "blue" | "purple" | "emerald" }) {
     const colorStyles = { blue: "bg-blue-50 text-blue-700 border-blue-100", purple: "bg-purple-50 text-purple-700 border-purple-100", emerald: "bg-emerald-50 text-emerald-700 border-emerald-100" }
-    return <div className={`p - 6 rounded - 2xl border ${colorStyles[color]} `}><div className="text-sm font-medium opacity-80">{label}</div><div className="text-4xl font-bold mt-2">{value}</div></div>
+    return <div className={`p-6 rounded-2xl border ${colorStyles[color]}`}><div className="text-sm font-medium opacity-80">{label}</div><div className="text-4xl font-bold mt-2">{value}</div></div>
 }
 
 // --- Admin Analytics Tab ---
@@ -575,7 +573,6 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
                 actions.forEach(a => {
                     const ticks = Array.isArray(a.ticks) ? a.ticks : [];
                     ticksCount += ticks.filter(t => t.completed).length;
-                    // Note: Ideally filter tick date by month too, but for now assuming action month alignment
                 });
             }
             entry.totalTicks += ticksCount;
@@ -606,32 +603,27 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
 
                 // Rule 1: Low Avg
                 if (avg < 5.0 && avg > 0) {
-                    risks.push({ student: s, reason: `Điểm TB thấp(${avg.toFixed(1)})`, type: "ACADEMIC" });
+                    risks.push({ student: s, reason: `Điểm TB thấp (${avg.toFixed(1)})`, type: "ACADEMIC" });
                 }
 
                 // Rule 2: Score Drop (Access previous month)
-                // This is tricky without strict month ordering, simplified check:
-                // Find a score entry that is "previous" to current? 
-                // Let's look at index in s.scores. 
                 const idx = s.scores.findIndex(sc => sc.month === monthKey);
                 if (idx > 0) {
                     const prevScoreObj = s.scores[idx - 1];
                     const prevAvg = ((prevScoreObj.math || 0) + (prevScoreObj.lit || 0) + (prevScoreObj.eng || 0)) / 3;
                     if (prevAvg - avg > 1.5) {
-                        risks.push({ student: s, reason: `Tụt điểm nhanh(-${(prevAvg - avg).toFixed(1)})`, type: "ACADEMIC" });
+                        risks.push({ student: s, reason: `Tụt điểm nhanh (-${(prevAvg - avg).toFixed(1)})`, type: "ACADEMIC" });
                     }
                 }
             }
 
             // Check Engagement Risk
-            // Calc current month ticks
             const taskMonth = inferredTaskMonth(s);
             const abm = safeActionsByMonth(s);
             const actions = abm[monthKey] || (monthKey === taskMonth ? s.activeActions : []);
             let ticksCount = 0;
             if (Array.isArray(actions)) actions.forEach(a => ticksCount += (a.ticks || []).filter(t => t.completed).length);
 
-            // Simple heuristic: If ticks < 5 in a whole month (and month has passed > 10 days? - ignored for simplicity)
             if (ticksCount < 5) {
                 risks.push({ student: s, reason: "Rất ít hoạt động (Ticks < 5)", type: "ENGAGEMENT" });
             }
@@ -686,7 +678,7 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
                                             <td className="p-3 font-medium">{r.student.name}</td>
                                             <td className="p-3 text-slate-500">{r.student.class}</td>
                                             <td className="p-3">
-                                                <span className={`px - 2 py - 1 rounded text - xs font - bold ${r.type === "ACADEMIC" ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700"} `}>
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${r.type === "ACADEMIC" ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700"}`}>
                                                     {r.reason}
                                                 </span>
                                             </td>
@@ -724,13 +716,12 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
                                 <Scatter name="Students" data={scatterData} fill="#8884d8">
                                     {scatterData.map((entry, index) => {
                                         const e = entry as any;
-                                        // Color logic: High Tick + High Score = Green, Low Tick + Low Score = Red
-                                        let fill = "#94a3b8"; // Gray default
-                                        if (e.x > 20 && e.y >= 7) fill = "#10b981"; // Excellent
-                                        if (e.x < 10 && e.y < 5) fill = "#ef4444"; // Bad
-                                        if (e.x > 20 && e.y < 6) fill = "#f59e0b"; // Needs Strategy
-                                        if (e.x < 10 && e.y >= 7) fill = "#8b5cf6"; // Talented/Lucky
-                                        return <cell key={`cell - ${index} `} fill={fill} />;
+                                        let fill = "#94a3b8";
+                                        if (e.x > 20 && e.y >= 7) fill = "#10b981";
+                                        if (e.x < 10 && e.y < 5) fill = "#ef4444";
+                                        if (e.x > 20 && e.y < 6) fill = "#f59e0b";
+                                        if (e.x < 10 && e.y >= 7) fill = "#8b5cf6";
+                                        return <Cell key={`cell-${index}`} fill={fill} />;
                                     })}
                                 </Scatter>
                             </ScatterChart>
@@ -742,28 +733,30 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
             {/* Chart 1: Academic Performance Trends */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                 <h3 className="text-lg font-bold text-slate-700 mb-4">Biến động Điểm số (TB Khối)</h3>
-                <AreaChart data={scoreTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                    <defs>
-                        <linearGradient id="colorAvg" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
-                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                        </linearGradient>
-                    </defs>
-                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} domain={[0, 10]} />
-                    <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                    <Area type="monotone" dataKey="avgScore" name="Điểm TB" stroke="#3b82f6" fillOpacity={1} fill="url(#colorAvg)" strokeWidth={3} />
-                    <Line type="monotone" dataKey="maxScore" name="Cao nhất" stroke="#10b981" strokeWidth={2} dot={false} strokeDasharray="5 5" />
-                    <Line type="monotone" dataKey="minScore" name="Thấp nhất" stroke="#ef4444" strokeWidth={2} dot={false} strokeDasharray="5 5" />
-                    <Legend wrapperStyle={{ paddingTop: '20px' }} />
-                </AreaChart>
-            </ResponsiveContainer>
-        </div>
-            </div >
+                <div className="h-[300px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={scoreTrendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                            <defs>
+                                <linearGradient id="colorAvg" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                                </linearGradient>
+                            </defs>
+                            <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} dy={10} />
+                            <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} domain={[0, 10]} />
+                            <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <RechartsTooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                            <Area type="monotone" dataKey="avgScore" name="Điểm TB" stroke="#3b82f6" fillOpacity={1} fill="url(#colorAvg)" strokeWidth={3} />
+                            <Line type="monotone" dataKey="maxScore" name="Cao nhất" stroke="#10b981" strokeWidth={2} dot={false} strokeDasharray="5 5" />
+                            <Line type="monotone" dataKey="minScore" name="Thấp nhất" stroke="#ef4444" strokeWidth={2} dot={false} strokeDasharray="5 5" />
+                            <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
 
-        {/* Chart 2: Class Engagement (Ticks) */ }
-        < div className = "bg-white p-6 rounded-2xl shadow-sm border border-slate-200" >
+            {/* Chart 2: Class Engagement (Ticks) */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                 <div className="flex items-center justify-between mb-6">
                     <h3 className="text-lg font-bold text-slate-700">Mức độ Chăm chỉ theo Lớp (Ticks)</h3>
                     <select
@@ -794,7 +787,7 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
                 <div className="mt-4 text-center text-sm text-slate-500 italic">
                     * Dữ liệu dựa trên tổng số nhiệm vụ (ticks) hoàn thành của lớp chia cho sĩ số.
                 </div>
-            </div >
-        </div >
+            </div>
+        </div>
     );
 }
