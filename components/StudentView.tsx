@@ -2,13 +2,12 @@
 import StudentChangePassword from "./StudentChangePassword";
 import React, { useMemo, useState, useEffect } from "react";
 import type { Student, ScoreData, StudyAction } from "../types";
-import { LogOut, CalendarCheck, Check, ChevronLeft, ChevronRight, Trophy, Award, Target, Sparkles, TrendingUp, BookOpen } from "lucide-react";
+import { LogOut, CalendarCheck, Check, ChevronLeft, ChevronRight, Trophy, Award, Target, Sparkles, TrendingUp, BookOpen, AlertCircle } from "lucide-react";
 import ScoreChart from "./ScoreChart";
 import Header from "./Header";
 import OverviewCards from "./OverviewCards";
 import MonthNavigator from "./MonthNavigator";
 import Leaderboard from "./Leaderboard";
-
 
 type Props = {
   student: Student;
@@ -16,7 +15,7 @@ type Props = {
   onLogout: () => Promise<void>;
 };
 
-// --- Helper Functions (Keep existing logic) ---
+// --- Helper Functions ---
 function isoDate(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -117,10 +116,6 @@ function buildTickMap(action: StudyAction) {
   const map = new Map<string, boolean>();
   (action.ticks || []).forEach((t) => map.set(String(t.date), !!t.completed));
   return map;
-}
-function shortDayLabel(dateStr: string) {
-  const d = new Date(dateStr);
-  return `${d.getDate()}/${d.getMonth() + 1}`;
 }
 
 export default function StudentView({ student, onUpdateAction, onLogout }: Props) {
@@ -308,14 +303,14 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                           key={a.id}
                           onClick={() => toggleDaily(a)}
                           className={`group relative flex items-center justify-between p-5 rounded-2xl border transition-all duration-300 ${done
-                              ? "bg-gradient-to-r from-emerald-50 to-emerald-100/50 border-emerald-200 shadow-sm"
-                              : "bg-white border-slate-100 hover:border-indigo-200 hover:shadow-md hover:-translate-y-0.5"
+                            ? "bg-gradient-to-r from-emerald-50 to-emerald-100/50 border-emerald-200 shadow-sm"
+                            : "bg-white border-slate-100 hover:border-indigo-200 hover:shadow-md hover:-translate-y-0.5"
                             }`}
                         >
                           <div className="flex items-center gap-4">
                             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500 ${done
-                                ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 rotate-0"
-                                : "bg-slate-100 text-slate-300 group-hover:bg-indigo-50 group-hover:text-indigo-400 rotate-12 group-hover:rotate-0"
+                              ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 rotate-0"
+                              : "bg-slate-100 text-slate-300 group-hover:bg-indigo-50 group-hover:text-indigo-400 rotate-12 group-hover:rotate-0"
                               }`}>
                               <Check size={24} strokeWidth={3} className={done ? "scale-100 opacity-100 transition-all" : "scale-50 opacity-0"} />
                             </div>

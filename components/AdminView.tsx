@@ -1,12 +1,12 @@
 import React, { useState } from "react";
 import { User, Student } from "../types";
-import { LogOut, Users, School, LayoutDashboard } from "lucide-react";
+import { LogOut, Users, School, LayoutDashboard, Menu, X, RefreshCw, AlertCircle } from "lucide-react";
+import { api } from "../services/clientApi";
 
 interface AdminViewProps {
     user: User; // The admin user
     students: Student[]; // All students (for system stats)
     onLogout: () => void;
-    // Add other props as needed for specific admin actions
 }
 
 export default function AdminView({ user, students, onLogout }: AdminViewProps) {
