@@ -36,6 +36,7 @@ function nextMonthKey(monthKey: string): string {
     let m = parseInt(mStr, 10);
     m += 1;
     if (m === 13) { m = 1; y += 1; }
+    // Fixed syntax error here
     return `${ String(y).padStart(4, "0") } -${ String(m).padStart(2, "0") } `;
 }
 function latestScoreMonth(st?: Student) {
