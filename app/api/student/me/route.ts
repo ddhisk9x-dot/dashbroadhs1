@@ -182,79 +182,56 @@ export async function GET() {
   const riskLevel = aiReport.riskLevel || "Trung bình";
 
   sortedScoreList.forEach((sc: any, idx) => {
+    // Current month's target is based on PREVIOUS month's performance
     const prev = sortedScoreList[idx - 1] || null;
     const prevPrev = sortedScoreList[idx - 2] || null;
     const g = gradeAvgSubjectsByMonth[sc.month] || { math: 6, lit: 6, eng: 6 };
 
-    const smartT = (subjectKey: 'math' | 'lit' | 'eng', curr: number | null, p: number | null, pp: number | null, gAvg: number) => {
-      if (curr === null || curr === 0) return gAvg; // No data, aim for grade avg
+    // Function now takes prev score as "base" (curr) -> and calculates target for NEXT month (which is this month)
+    const smartT = (subjectKey: 'math' | 'lit' | 'eng', baseScore: number | null, prevBaseScore: number | null, gAvg: number) => {
+      // If no previous score (first month), use Grade Avg as baseline target
+      if (baseScore === null) return gAvg;
 
-      // Cap scores at 10 for calculation purposes
-      const cappedCurr = Math.min(15, curr);
-      const cappedP = p !== null ? Math.min(15, p) : null;
-      const cappedPP = pp !== null ? Math.min(15, pp) : null;
+      const cappedBase = Math.min(15, baseScore);
+      const cappedPrevBase = prevBaseScore !== null ? Math.min(15, prevBaseScore) : null;
 
-      // Calculate trend (2-month moving direction)
+      // Calculate trend leading up to the previous month
       let trend = 0;
-      if (cappedP !== null) {
-        trend = cappedCurr - cappedP;
-        if (cappedPP !== null) {
-          // Weight recent trend more
-          trend = trend * 0.7 + (cappedP - cappedPP) * 0.3;
-        }
+      if (cappedPrevBase !== null) {
+        trend = cappedBase - cappedPrevBase;
       }
 
-      // Get AI risk factor for this subject
       const aiSubjectInfo = aiBySubject[subjectKey] || {};
       const hasRisk = (aiSubjectInfo.status || "").includes("rủi ro") || (aiSubjectInfo.status || "").includes("yếu");
 
-      // Base growth calculation
-      let baseGrowth = 0.3; // Default growth target
+      let baseGrowth = 0.5;
 
       // Adjust based on trend
-      if (trend > 0.5) {
-        baseGrowth += 0.2; // Strong upward trend, push harder
-      } else if (trend > 0) {
-        baseGrowth += 0.1; // Slight improvement
-      } else if (trend < -0.5) {
-        baseGrowth = 0.1; // Struggling, modest target
-      }
+      if (trend > 0) baseGrowth += 0.25;
+      if (trend < -1) baseGrowth = 0.2; // Reduced growth expectation if dropping fast
 
-      // Adjust based on position relative to grade avg
-      const distFromGradeAvg = cappedCurr - gAvg;
-      if (distFromGradeAvg < -1) {
-        // Significantly below average - push to catch up
-        baseGrowth += 0.3;
-      } else if (distFromGradeAvg < 0) {
-        baseGrowth += 0.1;
-      }
+      // Adjust based on distance to grade avg
+      const dist = cappedBase - gAvg;
+      if (dist < -1) baseGrowth += 0.2; // Push to catch up
 
       // AI risk adjustment
-      if (hasRisk) {
-        baseGrowth = Math.max(0.2, baseGrowth - 0.1); // More conservative if at risk
+      if (hasRisk) baseGrowth = Math.max(0.2, baseGrowth - 0.2);
+      if (riskLevel === "Cao") baseGrowth = Math.max(0.1, baseGrowth * 0.7);
+
+      let target = cappedBase + baseGrowth;
+
+      // Ensure reasonable target
+      if (target < gAvg && cappedBase < gAvg) {
+        target = Math.min(gAvg + 0.2, cappedBase + 0.5);
       }
 
-      // Overall risk level adjustment
-      if (riskLevel === "Cao") {
-        baseGrowth = Math.max(0.15, baseGrowth * 0.8);
-      }
-
-      // Calculate target
-      let target = cappedCurr + baseGrowth;
-
-      // Ensure target is at least slightly above grade avg if below
-      if (target < gAvg && cappedCurr < gAvg) {
-        target = Math.min(gAvg + 0.2, cappedCurr + 0.5);
-      }
-
-      // Cap at 15
       return parseFloat(Math.min(15, Math.max(1, target)).toFixed(1));
     };
 
     subjectTargets[sc.month] = {
-      math: smartT('math', sc.math, prev?.math, prevPrev?.math, g.math),
-      lit: smartT('lit', sc.lit, prev?.lit, prevPrev?.lit, g.lit),
-      eng: smartT('eng', sc.eng, prev?.eng, prevPrev?.eng, g.eng),
+      math: smartT('math', prev?.math ?? null, prevPrev?.math ?? null, g.math),
+      lit: smartT('lit', prev?.lit ?? null, prevPrev?.lit ?? null, g.lit),
+      eng: smartT('eng', prev?.eng ?? null, prevPrev?.eng ?? null, g.eng),
     };
   });
 
