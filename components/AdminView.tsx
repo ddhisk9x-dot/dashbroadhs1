@@ -62,6 +62,19 @@ async function persistReportAndActions(mhs: string, report: AIReport, actions: S
     return data;
 }
 
+// Helper to count ticks safely (checks archived month, then falls back to activeActions filtered by date)
+function countTicksForMonth(student: Student, month: string): number {
+    const abm = safeActionsByMonth(student);
+    // 1. Try to find precise snapshot for the month
+    if (abm && abm[month] && Array.isArray(abm[month])) {
+        return abm[month].reduce((acc, a) => acc + (Array.isArray(a.ticks) ? a.ticks.filter(t => t.completed).length : 0), 0);
+    }
+    // 2. Fallback: Scan activeActions for ticks in selectedMonth
+    const aa = Array.isArray((student as any).activeActions) ? ((student as any).activeActions as StudyAction[]) : [];
+    return aa.reduce((acc, a) =>
+        acc + (Array.isArray(a.ticks) ? a.ticks.filter(t => t.completed && t.date && t.date.startsWith(month)).length : 0), 0);
+}
+
 export default function AdminView({ user, students, onLogout, onImportData, onUpdateStudentReport }: AdminViewProps) {
     const [activeTab, setActiveTab] = useState<"DASHBOARD" | "USERS" | "CLASSES" | "TEACHER_MODE" | "ANALYTICS">("DASHBOARD");
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -710,17 +723,8 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
             entry.studentCount++;
 
             // Calculate ticks for selected month (Fallback to activeActions if selected matches current inferred)
-            const taskMonth = inferredTaskMonth(s);
-            const abm = safeActionsByMonth(s); // Uses activeActions if month matches or is missing
-            const actions = abm[selectedMonth] || (selectedMonth === taskMonth ? s.activeActions : []);
-
-            let ticksCount = 0;
-            if (Array.isArray(actions)) {
-                actions.forEach(a => {
-                    const ticks = Array.isArray(a.ticks) ? a.ticks : [];
-                    ticksCount += ticks.filter(t => t.completed).length;
-                });
-            }
+            // Calculate ticks (Robust)
+            const ticksCount = countTicksForMonth(s, selectedMonth);
             entry.totalTicks += ticksCount;
         });
 
@@ -764,11 +768,8 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
             }
 
             // Check Engagement Risk
-            const taskMonth = inferredTaskMonth(s);
-            const abm = safeActionsByMonth(s);
-            const actions = abm[monthKey] || (monthKey === taskMonth ? s.activeActions : []);
-            let ticksCount = 0;
-            if (Array.isArray(actions)) actions.forEach(a => ticksCount += (a.ticks || []).filter(t => t.completed).length);
+            // Check Engagement Risk
+            const ticksCount = countTicksForMonth(s, monthKey);
 
             if (ticksCount < 5) {
                 risks.push({ student: s, reason: "Rất ít hoạt động (Ticks < 5)", type: "ENGAGEMENT" });
@@ -780,11 +781,7 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
     // 4. Habit Matrix Data
     const scatterData = useMemo(() => {
         return students.map(s => {
-            const taskMonth = inferredTaskMonth(s);
-            const abm = safeActionsByMonth(s);
-            const actions = abm[selectedMonth] || (selectedMonth === taskMonth ? s.activeActions : []);
-            let ticksCount = 0;
-            if (Array.isArray(actions)) actions.forEach(a => ticksCount += (a.ticks || []).filter(t => t.completed).length);
+            const ticksCount = countTicksForMonth(s, selectedMonth);
 
             const scoreObj = s.scores.find(sc => sc.month === selectedMonth);
             const avg = scoreObj ? ((scoreObj.math || 0) + (scoreObj.lit || 0) + (scoreObj.eng || 0)) / 3 : 0;
