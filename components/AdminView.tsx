@@ -546,10 +546,16 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
     // 2. Class Ticks Data
     const [selectedMonth, setSelectedMonth] = useState<string>(isoMonth(new Date()));
 
-    // Get available months for dropdown
+    // Get available months for dropdown (include current + previous month even if no data)
     const availableMonths = useMemo(() => {
         const s = new Set<string>();
-        students.forEach(st => st.scores?.forEach(sc => s.add(sc.month))); // Use score months as proxy
+        // Always include current and previous month
+        const now = new Date();
+        s.add(isoMonth(now));
+        const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        s.add(isoMonth(prevMonth));
+        // Add months from actual data
+        students.forEach(st => st.scores?.forEach(sc => s.add(sc.month)));
         return Array.from(s).sort().reverse();
     }, [students]);
 

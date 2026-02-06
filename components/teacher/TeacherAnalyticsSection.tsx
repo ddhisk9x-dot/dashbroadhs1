@@ -19,9 +19,15 @@ interface TeacherAnalyticsSectionProps {
 export default function TeacherAnalyticsSection({ students, teacherClass }: TeacherAnalyticsSectionProps) {
     const [selectedMonth, setSelectedMonth] = useState<string>(isoMonth(new Date()));
 
-    // Available months
+    // Available months (include current + previous month even if no data)
     const availableMonths = useMemo(() => {
         const s = new Set<string>();
+        // Always include current and previous month
+        const now = new Date();
+        s.add(isoMonth(now));
+        const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        s.add(isoMonth(prevMonth));
+        // Add months from actual data
         students.forEach(st => st.scores?.forEach(sc => s.add(sc.month)));
         return Array.from(s).sort().reverse();
     }, [students]);
@@ -187,8 +193,8 @@ export default function TeacherAnalyticsSection({ students, teacherClass }: Teac
                                         <td className="p-3 font-bold">{r.avgScore.toFixed(1)}</td>
                                         <td className="p-3">
                                             <span className={`px-2 py-1 rounded text-xs font-bold ${r.level === "DANGER" ? "bg-red-600 text-white" :
-                                                    r.level === "WARNING" ? "bg-orange-500 text-white" :
-                                                        "bg-yellow-400 text-slate-800"
+                                                r.level === "WARNING" ? "bg-orange-500 text-white" :
+                                                    "bg-yellow-400 text-slate-800"
                                                 }`}>
                                                 {r.level === "DANGER" ? "🔴 Nguy hiểm" : r.level === "WARNING" ? "🟠 Theo dõi" : "🟡 Chú ý"}
                                             </span>
