@@ -8,6 +8,8 @@ import TeacherBulkProgress from "./teacher/TeacherBulkProgress";
 import TeacherSyncModal from "./teacher/TeacherSyncModal";
 import TeacherStudentTable from "./teacher/TeacherStudentTable";
 import TeacherStudentDetailModal from "./teacher/TeacherStudentDetailModal";
+import TeacherAnalyticsSection from "./teacher/TeacherAnalyticsSection";
+import { Users, BarChart } from "lucide-react";
 
 // ... existing imports ...
 
@@ -99,6 +101,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
   const [selectedMhs, setSelectedMhs] = useState<Set<string>>(new Set());
   const [filterClass, setFilterClass] = useState("ALL");
   const [sortTicks, setSortTicks] = useState<"none" | "desc" | "asc">("none");
+  const [activeTab, setActiveTab] = useState<"STUDENTS" | "ANALYTICS">("STUDENTS");
 
   // Who am I
   const [me, setMe] = useState<any>(null);
@@ -362,22 +365,47 @@ const TeacherView: React.FC<TeacherViewProps> = ({
         />
 
         <main className="flex-1 px-4 sm:px-6 py-6 max-w-[1600px] mx-auto w-full animate-in fade-in duration-500">
-          <TeacherStudentTable
-            students={filteredStudents}
-            selectedMhs={selectedMhs}
-            isTeacher={isTeacher}
-            onSelectAll={(checked) => setSelectedMhs(checked ? new Set(filteredStudents.map(s => s.mhs)) : new Set())}
-            onSelectStudent={(mhs, checked) => setSelectedMhs(prev => {
-              const next = new Set(prev);
-              if (checked) next.add(mhs); else next.delete(mhs);
-              return next;
-            })}
-            sortTicks={sortTicks}
-            onSortTicks={() => setSortTicks(prev => prev === "desc" ? "asc" : prev === "asc" ? "none" : "desc")}
-            onGenerateAI={handleGenerateAI}
-            onViewStudent={setViewingMhs}
-            loadingMhs={loadingMhs}
-          />
+          {/* Tab Toggle */}
+          <div className="flex gap-2 mb-6">
+            <button
+              onClick={() => setActiveTab("STUDENTS")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all ${activeTab === "STUDENTS" ? "bg-indigo-600 text-white shadow-lg" : "bg-white/80 text-slate-600 hover:bg-slate-100"}`}
+            >
+              <Users size={18} />
+              <span>Danh sách HS</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("ANALYTICS")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all ${activeTab === "ANALYTICS" ? "bg-indigo-600 text-white shadow-lg" : "bg-white/80 text-slate-600 hover:bg-slate-100"}`}
+            >
+              <BarChart size={18} />
+              <span>Báo cáo lớp</span>
+            </button>
+          </div>
+
+          {activeTab === "STUDENTS" ? (
+            <TeacherStudentTable
+              students={filteredStudents}
+              selectedMhs={selectedMhs}
+              isTeacher={isTeacher}
+              onSelectAll={(checked) => setSelectedMhs(checked ? new Set(filteredStudents.map(s => s.mhs)) : new Set())}
+              onSelectStudent={(mhs, checked) => setSelectedMhs(prev => {
+                const next = new Set(prev);
+                if (checked) next.add(mhs); else next.delete(mhs);
+                return next;
+              })}
+              sortTicks={sortTicks}
+              onSortTicks={() => setSortTicks(prev => prev === "desc" ? "asc" : prev === "asc" ? "none" : "desc")}
+              onGenerateAI={handleGenerateAI}
+              onViewStudent={setViewingMhs}
+              loadingMhs={loadingMhs}
+            />
+          ) : (
+            <TeacherAnalyticsSection
+              students={visibleStudents}
+              teacherClass={teacherClass || "Tất cả"}
+            />
+          )}
         </main>
 
         {viewingStudent && (
