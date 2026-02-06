@@ -5,6 +5,7 @@ import type { Student, StudyAction, TaskTick, User } from "../types";
 import { api } from "../services/clientApi";
 import StudentView from "./StudentView";
 import TeacherView from "./TeacherView";
+import AdminView from "./AdminView";
 
 function LoginScreen({ onLogin }: { onLogin: (u: string, p: string) => Promise<void> }) {
   const [username, setUsername] = useState("");
@@ -116,6 +117,7 @@ export default function DashboardApp() {
   const view = useMemo(() => {
     if (!user) return "LOGIN";
     if (user.role === "STUDENT") return "STUDENT";
+    if (user.role === "ADMIN") return "ADMIN";
     return "TEACHER";
   }, [user]);
 
@@ -124,15 +126,15 @@ export default function DashboardApp() {
     try {
       const me = await fetch("/api/me", { credentials: "include" }).then((r) => r.json());
       if (me?.ok && me?.session) {
-       const u: User = {
-  username: String(me.session.username || "admin"),
-  name: me.session.name || "User",
-  role: me.session.role,
-};
+        const u: User = {
+          username: String(me.session.username || "admin"),
+          name: me.session.name || "User",
+          role: me.session.role,
+        };
 
-// (optional) nếu bạn vẫn muốn giữ teacherClass để dùng đâu đó
-// thì gắn kiểu any để không vỡ type:
-(u as any).teacherClass = me.session.teacherClass;
+        // (optional) nếu bạn vẫn muốn giữ teacherClass để dùng đâu đó
+        // thì gắn kiểu any để không vỡ type:
+        (u as any).teacherClass = me.session.teacherClass;
         setUser(u);
 
         if (u.role === "STUDENT") {
@@ -246,6 +248,11 @@ export default function DashboardApp() {
     );
   }
 
+  if (view === "ADMIN" && user) {
+    return <AdminView user={user} students={students} onLogout={onLogout} />;
+  }
+
+  // Fallback for TEACHER
   return (
     <TeacherView
       students={students}

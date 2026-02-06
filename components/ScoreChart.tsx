@@ -1,127 +1,162 @@
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { ScoreData, StudentDashboardStats } from '../types';
+import React, { useMemo } from "react";
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  Line,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+  Label,
+  Area,
+} from "recharts";
+import { ScoreData, StudentDashboardStats } from "../types";
 
-interface ScoreChartProps {
-  data: ScoreData[];
+type Props = {
+  data: (ScoreData & {
+    gradeMath?: number;
+    gradeLit?: number;
+    gradeEng?: number;
+    targetMath?: number;
+    targetLit?: number;
+    targetEng?: number;
+  })[];
   stats?: StudentDashboardStats;
-  subject?: 'math' | 'lit' | 'eng';
-}
+  subject?: "math" | "lit" | "eng";
+};
 
-const ScoreChart: React.FC<ScoreChartProps> = ({ data, stats, subject }) => {
-  // Filter lines based on subject
-  const showMath = !subject || subject === 'math';
-  const showLit = !subject || subject === 'lit';
-  const showEng = !subject || subject === 'eng';
+const SUBJECT_CONFIG = {
+  math: { label: "Toán", color: "#3b82f6", gradient: ["#3b82f6", "#60a5fa"] }, // Blue
+  lit: { label: "Văn", color: "#ec4899", gradient: ["#ec4899", "#f472b6"] },  // Pink
+  eng: { label: "Anh", color: "#8b5cf6", gradient: ["#8b5cf6", "#a78bfa"] },  // Violet
+};
+
+export default function ScoreChart({ data, stats, subject }: Props) {
+  // Sort data by month
+  const chartData = useMemo(() => {
+    return [...data].sort((a, b) => String(a.month).localeCompare(String(b.month)));
+  }, [data]);
+
+  if (!chartData || chartData.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[250px] text-slate-400 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+        <p className="font-medium">Chưa có dữ liệu điểm.</p>
+      </div>
+    );
+  }
+
+  // Determine subject config
+  // Nếu không truyền subject -> mặc định vẽ 3 đường (hoặc logic cũ).
+  // Nhưng trong thiết kế mới ta tách 3 biểu đồ riêng.
+  const conf = subject ? SUBJECT_CONFIG[subject] : null;
+
+  // Custom Tooltip
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white/90 backdrop-blur-md border border-slate-200 shadow-xl rounded-xl p-3 text-xs">
+          <p className="font-bold text-slate-700 mb-2 uppercase tracking-wider">{label}</p>
+          {payload.map((entry: any, index: number) => (
+            <div key={index} className="flex items-center gap-2 mb-1 last:mb-0">
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{ backgroundColor: entry.color }}
+              />
+              <span className="font-medium text-slate-600">
+                {entry.name}: <span className="font-bold text-slate-800">{entry.value}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
-    <div className="h-96 w-full bg-white p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100/50 transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)]">
-      {!subject && (
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <span className="w-2 h-6 bg-indigo-500 rounded-full inline-block"></span>
-            Biểu đồ Học tập
-          </h3>
-        </div>
-      )}
-      <ResponsiveContainer width="100%" height={subject ? "100%" : "85%"}>
-        <LineChart
-          data={data}
-          margin={{
-            top: 10,
-            right: 30,
-            left: 0,
-            bottom: 5,
-          }}
-        >
-          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+    <div className="w-full h-[280px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={chartData} margin={{ top: 20, right: 20, bottom: 0, left: -20 }}>
+          <defs>
+            {/* Gradients for Areas/Bars if needed */}
+            {subject && (
+              <linearGradient id={`color${subject}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={conf?.color} stopOpacity={0.2} />
+                <stop offset="95%" stopColor={conf?.color} stopOpacity={0} />
+              </linearGradient>
+            )}
+          </defs>
+
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+
           <XAxis
             dataKey="month"
-            stroke="#94a3b8"
-            tick={{ fontSize: 12, fill: '#64748b' }}
+            tick={{ fontSize: 11, fill: "#64748b", fontWeight: 600 }}
             axisLine={false}
             tickLine={false}
             dy={10}
           />
+
           <YAxis
-            domain={[0, 15]}
-            stroke="#94a3b8"
-            tick={{ fontSize: 12, fill: '#64748b' }}
+            domain={[0, 10]}
+            tick={{ fontSize: 11, fill: "#64748b" }}
             axisLine={false}
             tickLine={false}
             dx={-10}
+            padding={{ top: 10, bottom: 0 }}
           />
-          <Tooltip
-            contentStyle={{
-              borderRadius: '16px',
-              border: 'none',
-              boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
-              padding: '12px',
-              backgroundColor: 'rgba(255, 255, 255, 0.95)',
-              backdropFilter: 'blur(4px)'
-            }}
-            cursor={{ stroke: '#cbd5e1', strokeWidth: 1, strokeDasharray: '4 4' }}
-          />
-          <Legend wrapperStyle={{ paddingTop: '20px' }} />
 
-          {/* Custom Dot for highlighting Target Achievements */}
-          {showMath && <Line connectNulls={false} type="monotone" dataKey="math" name="Toán" stroke="#3b82f6" strokeWidth={3}
-            dot={(props: any) => {
-              const { cx, cy, payload, value } = props;
-              const isTargetReached = typeof value === 'number' && typeof payload.targetMath === 'number' && value >= payload.targetMath;
-              if (isTargetReached) {
-                return (
-                  <svg x={cx - 10} y={cy - 10} width={20} height={20} viewBox="0 0 24 24" fill="#fbbf24" stroke="#d97706" strokeWidth="2">
-                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                  </svg>
-                );
-              }
-              return <circle cx={cx} cy={cy} r={4} stroke="#3b82f6" strokeWidth={2} fill="#fff" />;
-            }}
-            activeDot={{ r: 7, strokeWidth: 0 }}
-          />}
-          {showLit && <Line connectNulls={false} type="monotone" dataKey="lit" name="Văn" stroke="#ec4899" strokeWidth={3}
-            dot={(props: any) => {
-              const { cx, cy, payload, value } = props;
-              const isTargetReached = typeof value === 'number' && typeof payload.targetLit === 'number' && value >= payload.targetLit;
-              if (isTargetReached) {
-                return (
-                  <svg x={cx - 10} y={cy - 10} width={20} height={20} viewBox="0 0 24 24" fill="#fbbf24" stroke="#d97706" strokeWidth="2">
-                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                  </svg>
-                );
-              }
-              return <circle cx={cx} cy={cy} r={4} stroke="#ec4899" strokeWidth={2} fill="#fff" />;
-            }}
-            activeDot={{ r: 7, strokeWidth: 0 }}
-          />}
-          {showEng && <Line connectNulls={false} type="monotone" dataKey="eng" name="Anh" stroke="#8b5cf6" strokeWidth={3}
-            dot={(props: any) => {
-              const { cx, cy, payload, value } = props;
-              const isTargetReached = typeof value === 'number' && typeof payload.targetEng === 'number' && value >= payload.targetEng;
-              if (isTargetReached) {
-                return (
-                  <svg x={cx - 10} y={cy - 10} width={20} height={20} viewBox="0 0 24 24" fill="#fbbf24" stroke="#d97706" strokeWidth="2">
-                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                  </svg>
-                );
-              }
-              return <circle cx={cx} cy={cy} r={4} stroke="#8b5cf6" strokeWidth={2} fill="#fff" />;
-            }}
-            activeDot={{ r: 7, strokeWidth: 0 }}
-          />}
+          <Tooltip content={<CustomTooltip />} cursor={{ fill: "#f1f5f9", radius: 8 }} />
 
-          {showMath && <Line connectNulls={false} type="monotone" dataKey="gradeMath" name="TB Khối Toán" stroke="#3b82f6" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />}
-          {showLit && <Line connectNulls={false} type="monotone" dataKey="gradeLit" name="TB Khối Văn" stroke="#ec4899" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />}
-          {showEng && <Line connectNulls={false} type="monotone" dataKey="gradeEng" name="TB Khối Anh" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="3 3" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />}
+          {/* Render Logic based on subject prop */}
+          {subject ? (
+            <>
+              {/* 1. Target Line (Dotted) */}
+              <Line
+                type="monotone"
+                dataKey={subject === "math" ? "targetMath" : subject === "lit" ? "targetLit" : "targetEng"}
+                name="Mục tiêu"
+                stroke="#ef4444"
+                strokeWidth={2}
+                strokeDasharray="4 4"
+                dot={false}
+                activeDot={false}
+              />
+              {/* 2. Grade Avg Area (Background Context) */}
+              <Area
+                type="monotone"
+                dataKey={subject === "math" ? "gradeMath" : subject === "lit" ? "gradeLit" : "gradeEng"}
+                name="TB Khối"
+                stroke="none"
+                fill="#94a3b8"
+                fillOpacity={0.1}
+              />
 
-          {showMath && <Line connectNulls={false} type="monotone" dataKey="targetMath" name="Mục tiêu Toán" stroke="#dc2626" strokeWidth={2} strokeDasharray="6 4" dot={false} />}
-          {showLit && <Line connectNulls={false} type="monotone" dataKey="targetLit" name="Mục tiêu Văn" stroke="#dc2626" strokeWidth={2} strokeDasharray="6 4" dot={false} />}
-          {showEng && <Line connectNulls={false} type="monotone" dataKey="targetEng" name="Mục tiêu Anh" stroke="#dc2626" strokeWidth={2} strokeDasharray="6 4" dot={false} />}
+              {/* 3. Student Score (Main Line) */}
+              <Line
+                type="monotone"
+                dataKey={subject}
+                name={`Điểm ${conf?.label}`}
+                stroke={conf?.color}
+                strokeWidth={3}
+                dot={{ r: 4, strokeWidth: 2, fill: "#fff", stroke: conf?.color }}
+                activeDot={{ r: 6, strokeWidth: 0, fill: conf?.color }}
+                animationDuration={1500}
+              />
+            </>
+          ) : (
+            // Fallback for "General" chart (if any)
+            <>
+              <Line type="monotone" dataKey="math" stroke="#3b82f6" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="lit" stroke="#ec4899" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="eng" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+            </>
+          )}
 
-        </LineChart>
+        </ComposedChart>
       </ResponsiveContainer>
     </div>
   );
-};
-
-export default ScoreChart;
+}
