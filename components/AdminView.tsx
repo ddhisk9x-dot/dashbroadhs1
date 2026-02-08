@@ -21,10 +21,7 @@ interface AdminViewProps {
     onLogout: () => void;
     onImportData: (newStudents: Student[]) => void;
     onUpdateStudentReport: (mhs: string, report: AIReport, actions: StudyAction[]) => void;
-    // ✅ NEW: Multi-Year Support
-    selectedYear?: string;
-    availableYears?: string[];
-    onYearChange?: (year: string) => void;
+
 }
 
 // --- Helper Functions (Replicated from TeacherView for parity) ---
@@ -91,25 +88,9 @@ function countTicksForMonth(student: Student, month: string): number {
     return 0;
 }
 
-// --- NEW: Helper for Academic Year Months ---
-function getAcademicYearMonths(yearCode?: string) {
-    if (!yearCode || !yearCode.startsWith("DIEM_")) return [];
-    try {
-        const match = yearCode.match(/_(\d{2})(\d{2})/);
-        if (!match) return [];
-        const startY = 2000 + parseInt(match[1]); // 25 -> 2025
-        const endY = 2000 + parseInt(match[2]);   // 26 -> 2026
 
-        const months = [];
-        // Aug to Dec of Start Year
-        for (let m = 8; m <= 12; m++) months.push(`${startY}-${String(m).padStart(2, '0')}`);
-        // Jan to May of End Year
-        for (let m = 1; m <= 5; m++) months.push(`${endY}-${String(m).padStart(2, '0')}`);
-        return months;
-    } catch { return []; }
-}
 
-export default function AdminView({ user, students, onLogout, onImportData, onUpdateStudentReport, selectedYear, availableYears, onYearChange }: AdminViewProps) {
+export default function AdminView({ user, students, onLogout, onImportData, onUpdateStudentReport }: AdminViewProps) {
     const [activeTab, setActiveTab] = useState<"DASHBOARD" | "USERS" | "CLASSES" | "TEACHER_MODE" | "ANALYTICS">("DASHBOARD");
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -131,19 +112,7 @@ export default function AdminView({ user, students, onLogout, onImportData, onUp
                         <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Admin Portal</h1>
                         <div className="text-sm text-slate-400 mt-1">DeepDashboard</div>
                         {/* ✅ Year Selector */}
-                        {availableYears && availableYears.length > 0 && (
-                            <select
-                                value={selectedYear || "DIEM_2526"}
-                                onChange={(e) => onYearChange?.(e.target.value)}
-                                className="mt-2 w-full bg-slate-800 text-white border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            >
-                                {availableYears.map(y => (
-                                    <option key={y} value={y}>
-                                        {y.replace("DIEM_", "Năm học 20")}
-                                    </option>
-                                ))}
-                            </select>
-                        )}
+
                     </div>
                     <button className="md:hidden text-slate-400" onClick={() => setIsSidebarOpen(false)}><X size={20} /></button>
                 </div>
@@ -178,13 +147,12 @@ export default function AdminView({ user, students, onLogout, onImportData, onUp
                         onImportData={onImportData}
                         onUpdateStudentReport={onUpdateStudentReport}
                         user={user}
-                        selectedYear={selectedYear || "DIEM_2526"}
                     />
                 ) : activeTab === "ANALYTICS" ? (
-                    <AdminAnalyticsTab students={students} selectedYear={selectedYear || "DIEM_2526"} />
+                    <AdminAnalyticsTab students={students} />
                 ) : (
                     <div className="p-4 md:p-8">
-                        {activeTab === "DASHBOARD" && <AdminDashboardTab students={students} selectedYear={selectedYear || "DIEM_2526"} />}
+                        {activeTab === "DASHBOARD" && <AdminDashboardTab students={students} />}
                         {activeTab === "USERS" && <AdminUsersTab />}
                         {activeTab === "CLASSES" && <AdminClassesTab students={students} />}
                     </div>
@@ -195,12 +163,11 @@ export default function AdminView({ user, students, onLogout, onImportData, onUp
 }
 
 // --- Admin Teacher Mode Tab (Re-implementation of Teacher View Logic) ---
-function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user, selectedYear }: {
+function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user }: {
     students: Student[],
     onImportData: (s: Student[]) => void,
     onUpdateStudentReport: (m: string, r: AIReport, a: StudyAction[]) => void,
-    user: User,
-    selectedYear: string
+    user: User
 }) {
     const [loadingMhs, setLoadingMhs] = useState<string | null>(null);
     const [viewingMhs, setViewingMhs] = useState<string | null>(null);
@@ -322,7 +289,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user,
         try {
             const res = await fetch("/api/sync/sheets", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ mode: "new_only", sheetName: selectedYear }),
+                body: JSON.stringify({ mode: "new_only" }),
             });
             const data = await res.json();
             if (data.monthsSynced && data.monthsSynced.length > 0) {
@@ -343,7 +310,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user,
         try {
             const res = await fetch("/api/sync/sheets", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ mode: "months", selectedMonths: Array.from(syncSelectedMonths), sheetName: selectedYear }),
+                body: JSON.stringify({ mode: "months", selectedMonths: Array.from(syncSelectedMonths) }),
             });
             const data = await res.json();
             if (data.ok) {
@@ -464,7 +431,7 @@ function SidebarItem({ icon, label, active, onClick }: { icon: React.ReactNode; 
     );
 }
 
-function AdminDashboardTab({ students, selectedYear }: { students: Student[], selectedYear: string }) {
+function AdminDashboardTab({ students }: { students: Student[] }) {
     const totalStudents = students.length;
     const totalClasses = new Set(students.map(s => s.class)).size;
     const [syncing, setSyncing] = useState(false);
@@ -474,7 +441,7 @@ function AdminDashboardTab({ students, selectedYear }: { students: Student[], se
         if (syncing) return;
         setSyncing(true); setSyncMsg("");
         try {
-            const res = await api.syncSheet({ mode: "new_only", sheetName: selectedYear }) as any;
+            const res = await api.syncSheet({ mode: "new_only" }) as any;
             if (res.ok) setSyncMsg(`✅ Đồng bộ thành công! + ${res.newMonthsDetected?.length || 0} tháng mới.`);
             else setSyncMsg("❌ Lỗi: " + (res.error || "Không xác định"));
         } catch (e: any) { setSyncMsg("❌ Lỗi kết nối: " + e.message); } finally { setSyncing(false); }
@@ -690,7 +657,7 @@ function StatCard({ label, value, color }: { label: string; value: string | numb
 }
 
 // --- Admin Analytics Tab ---
-function AdminAnalyticsTab({ students, selectedYear }: { students: Student[], selectedYear: string }) {
+function AdminAnalyticsTab({ students }: { students: Student[] }) {
     // 1. Score Trends Data
     const scoreTrendData = useMemo(() => {
         // ... (giữ nguyên logic scoreTrendData)
@@ -727,47 +694,20 @@ function AdminAnalyticsTab({ students, selectedYear }: { students: Student[], se
     }, [students]);
 
     // 2. Class Ticks Data
-    // Logic: Get months based on Academic Year (Aug -> May)
     const availableMonths = useMemo(() => {
-        const academicMonths = getAcademicYearMonths(selectedYear);
-        const dataMonths = new Set<string>();
-        students.forEach(st => st.scores?.forEach(sc => dataMonths.add(sc.month)));
+        const s = new Set<string>();
+        // Always include current and previous month
+        const now = new Date();
+        s.add(isoMonth(now));
+        const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        s.add(isoMonth(prevMonth));
+        // Add months from actual data
+        students.forEach(st => st.scores?.forEach(sc => s.add(sc.month)));
+        return Array.from(s).sort().reverse();
+    }, [students]);
 
-        // Merge academic months with actual data months (just in case there are outliers)
-        const merged = new Set([...academicMonths, ...Array.from(dataMonths)]);
-        return Array.from(merged).sort().reverse();
-    }, [students, selectedYear]);
-
-    // Initial Selection Logic:
-    // If current month is in availableMonths -> select it.
-    // If not, select the latest month in availableMonths (usually May).
-    // Initial Selection Logic (Smart):
-    // 1. If current month is in academic year -> Select it.
-    // 2. Else -> Find LATEST month that has data (scanned from all students).
-    // 3. Fallback -> First month of academic year (usually August).
-    const getBestMonth = (year: string, studs: Student[]) => {
-        const academicMonths = getAcademicYearMonths(year);
-        const currentM = isoMonth(new Date());
-
-        // 1. Current month is valid?
-        if (academicMonths.includes(currentM)) return currentM;
-
-        // 2. Latest data month?
-        const dataMonths = new Set<string>();
-        studs.forEach(st => st.scores?.forEach(sc => dataMonths.add(sc.month)));
-        const validDataMonths = Array.from(dataMonths).filter(m => academicMonths.includes(m)).sort();
-        if (validDataMonths.length > 0) return validDataMonths[validDataMonths.length - 1]; // Last one
-
-        // 3. Fallback to start of year (Aug)
-        return academicMonths[0] || currentM;
-    };
-
-    const [selectedMonth, setSelectedMonth] = useState<string>(() => getBestMonth(selectedYear, students));
-
-    // Update selectedMonth when year changes
-    useEffect(() => {
-        setSelectedMonth(getBestMonth(selectedYear, students));
-    }, [selectedYear, students]);
+    // Default to current month or latest available
+    const [selectedMonth, setSelectedMonth] = useState<string>(isoMonth(new Date()));
 
     // =====================================================
     // NEW: Pure Academic Risk Report (Score-only, NO ticks)
