@@ -107,7 +107,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "No student data found in sheet " + sheetName });
     }
 
-    // 2. Load old state (from same sheet ID)
+    // 2. Load old state from "main" (where good data exists)
     const supabaseUrl = process.env.SUPABASE_URL!;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
     const { data: oldData } = await supabase
       .from("app_state")
       .select("students_json")
-      .eq("id", sheetName)
+      .eq("id", "main") // Always read from main
       .maybeSingle();
 
     const oldStudents = (oldData?.students_json?.students as Student[]) || [];
@@ -181,17 +181,17 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4. Save to Supabase
+    // 4. Save to Supabase - Always save to "main" for consistency
     const { error } = await supabase
       .from("app_state")
       .upsert({
-        id: sheetName, // Save với ID là tên sheet
+        id: "main", // Always save to main for consistency with reads
         students_json: { students: mergedStudents, lastSync: new Date().toISOString() }
       });
 
     if (error) throw new Error(error.message);
 
-    return NextResponse.json({ ok: true, sheetName, students: mergedStudents.length });
+    return NextResponse.json({ ok: true, sheetName, savedTo: "main", students: mergedStudents.length });
 
   } catch (e: any) {
     console.error(e);
