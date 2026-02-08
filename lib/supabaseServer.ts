@@ -14,11 +14,19 @@ export const supabase = createClient(
 export type AppState = { students: any[] };
 
 export async function getAppState(): Promise<AppState> {
-  const { data, error } = await supabase
+  // Try DIEM_2526 first (new structure), fallback to "main" (legacy)
+  let { data, error } = await supabase
     .from("app_state")
     .select("students_json")
-    .eq("id", "main")
-    .single();
+    .eq("id", "DIEM_2526")
+    .maybeSingle();
+
+  if (!data) {
+    // Fallback to legacy "main"
+    const fallback = await supabase.from("app_state").select("students_json").eq("id", "main").maybeSingle();
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error) {
     // If table exists but row missing, return empty state
@@ -32,7 +40,7 @@ export async function getAppState(): Promise<AppState> {
 export async function setAppState(state: AppState): Promise<void> {
   const { error } = await supabase
     .from("app_state")
-    .upsert({ id: "main", students_json: state, updated_at: new Date().toISOString() });
+    .upsert({ id: "DIEM_2526", students_json: state, updated_at: new Date().toISOString() });
 
   if (error) throw error;
 }
