@@ -295,41 +295,11 @@ function doGet(e) {
 
 function handleGetData(sheetName) {
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    // Ưu tiên lấy sheet theo request, nếu không thì lấy sheet mặc định
     const name = sheetName || SHEET_STUDENTS;
     const sh = ss.getSheetByName(name);
     if (!sh) return json({ ok: false, error: "Sheet not found: " + name });
 
-    const values = sh.getDataRange().getValues(); // Lấy toàn bộ dữ liệu (bao gồm cả header)
-    if (values.length < 1) return json({ data: [] });
-
-    // Hàng đầu tiên là Header
-    const headers = values[0].map(h => String(h || "").trim());
-
-    // Các hàng còn lại là Data
-    const rows = values.slice(1);
-
-    const data = rows.map(row => {
-        const obj = {};
-        headers.forEach((colName, index) => {
-            // Chỉ lấy giá trị nếu có tên cột
-            if (colName) {
-                // Format ngày tháng nếu cần (Apps Script trả về Object Date)
-                let val = row[index];
-                if (val instanceof Date) {
-                    // Chuyển về string YYYY-MM-DD nếu là ngày giờ
-                    // Hoặc giữ nguyên nếu client tự xử lý. 
-                    // Ở đây ta để nguyên, JSON.stringify sẽ chuyển thành ISO string.
-                    // Tuy nhiên để an toàn cho logic regex ở backend (YYYY.MM hoặc YYYY-MM), ta nên cẩn thận.
-                    // Nhưng code backend đang regex key (tên cột), không phải value.
-                    // Value điểm số là số -> Ok.
-                }
-                obj[colName] = val;
-            }
-        });
-        return obj;
-    });
-
-    return json({ ok: true, data: data });
+    const values = sh.getDataRange().getValues();
+    return json({ ok: true, data: values });
 }
 function json(obj) { return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON); }

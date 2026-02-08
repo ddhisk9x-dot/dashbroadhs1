@@ -35,35 +35,57 @@ async function fetchFromAppsScript(sheetName: string): Promise<any[]> {
   return json.data || [];
 }
 
-function normalizeRows(rows: any[]): Student[] {
-  return rows.map(r => {
-    // Map từ field tiếng Việt (Apps Script trả về theo header sheet) sang field Student
+function normalizeRows(rows: any[][]): Student[] {
+  if (rows.length < 3) return [];
 
-    // Helper to find key fuzzily
-    const findKey = (candidates: string[]) => {
-      const keys = Object.keys(r);
-      for (const c of candidates) {
-        // Strict match first
-        const found = keys.find(k => k.trim().toUpperCase() === c);
-        if (found) return found;
-      }
-      for (const c of candidates) {
-        // Loose match
-        const found = keys.find(k => k.toUpperCase().includes(c));
-        if (found) return found;
-      }
-      return null;
-    };
+  const monthRow = rows[0] || [];
+  const headerRow = rows[1] || [];
 
-    const keyMhs = findKey(["MHS", "MA HS", "MSHS", "MÃ HS"]);
-    const keyName = findKey(["HỌ VÀ TÊN", "HO VA TEN", "NAME", "QUY DANH"]);
-    const keyClass = findKey(["LỚP", "LOP", "CLASS"]);
+  const norm = (v: any) => String(v ?? "").trim().toUpperCase();
+  const headerNorm = headerRow.map(norm);
 
-    const mhs = keyMhs ? String(r[keyMhs] || "").trim() : "";
-    if (!mhs) return null;
+  // Helper to find key fuzzily among headers
+  const findIdx = (candidates: string[]) => {
+    for (const c of candidates) {
+      const idx = headerNorm.indexOf(c);
+      if (idx >= 0) return idx;
+    }
+    for (const c of candidates) {
+      const idx = headerNorm.findIndex(h => h.includes(c));
+      if (idx >= 0) return idx;
+    }
+    return -1;
+  };
 
-    const name = keyName ? String(r[keyName] || "Unknown").trim() : "Unknown";
-    const className = keyClass ? String(r[keyClass] || "").trim() : "";
+  const idxMhs = findIdx(["MHS", "MA HS", "MSHS", "MÃ HS"]);
+  const idxName = findIdx(["HỌ VÀ TÊN", "HO VA TEN", "NAME", "QUY DANH"]);
+  const idxClass = findIdx(["LỚP", "LOP", "CLASS"]);
+
+  if (idxMhs < 0) return [];
+
+  // Identify available months from Row 0
+  const isMonthKey = (x: string) => /^\d{4}[-.]\d{2}$/.test(String(x || "").trim());
+  const monthKeysAll = Array.from(new Set(
+    monthRow.map(x => String(x || "").trim().replace(".", "-")).filter(isMonthKey)
+  ));
+
+  const getCol = (mk: string, subjNorm: string) => {
+    for (let i = 0; i < monthRow.length; i++) {
+      const rowMk = String(monthRow[i] || "").trim().replace(".", "-");
+      if (rowMk === mk && headerNorm[i] === subjNorm) return i;
+    }
+    return -1;
+  };
+
+  const students: Student[] = [];
+
+  for (let i = 2; i < rows.length; i++) {
+    const row = rows[i];
+    const mhs = String(row[idxMhs] || "").trim();
+    if (!mhs) continue;
+
+    const name = idxName >= 0 ? String(row[idxName] || "Unknown").trim() : "Unknown";
+    const className = idxClass >= 0 ? String(row[idxClass] || "").trim() : "";
 
     const student: Student = {
       mhs, name, class: className,
@@ -72,40 +94,32 @@ function normalizeRows(rows: any[]): Student[] {
       actionsByMonth: {}
     };
 
-    // Parse scores
-    // Duyệt qua các key của row để tìm pattern "YYYY-MM SUBJECT"
-    Object.keys(r).forEach(key => {
-      // Regex: 2025-09 TOÁN hoặc 2025.09 TOÁN (accept cả dot và dash!)
-      const match = key.match(/^(\d{4}[-.]?\d{2})\s+(TOÁN|NGỮ VĂN|TIẾNG ANH)$/i);
-      if (match) {
-        // Normalize month format: 2025.08 -> 2025-08
-        const month = match[1].replace(".", "-");
-        const subj = match[2].toUpperCase();
-        // Xử lý chuỗi số có dấu phẩy (Excel VN)
-        const valStr = String(r[key]).replace(",", ".");
-        const val = parseFloat(valStr);
+    monthKeysAll.forEach(mk => {
+      const cMath = getCol(mk, "TOÁN");
+      const cLit = getCol(mk, "NGỮ VĂN");
+      const cEng = getCol(mk, "TIẾNG ANH");
 
-        // SAFETY NET: Chỉ chấp nhận điểm hợp lệ (0-20)
-        // Loại bỏ các giá trị rác như ngày tháng, tổng điểm, số serial...
-        if (Number.isFinite(val) && val >= 0 && val <= 20) {
-          let sc = student.scores.find(s => s.month === month);
-          if (!sc) {
-            sc = { month, math: null, lit: null, eng: null };
-            student.scores.push(sc);
-          }
+      const parseVal = (idx: number) => {
+        if (idx < 0) return null;
+        const v = String(row[idx] || "").replace(",", ".");
+        const n = parseFloat(v);
+        return (Number.isFinite(n) && n >= 0 && n <= 20) ? n : null;
+      };
 
-          if (subj === "TOÁN") sc.math = val;
-          else if (subj === "NGỮ VĂN") sc.lit = val;
-          else if (subj === "TIẾNG ANH") sc.eng = val;
-        }
+      const math = parseVal(cMath);
+      const lit = parseVal(cLit);
+      const eng = parseVal(cEng);
+
+      if (math !== null || lit !== null || eng !== null) {
+        student.scores.push({ month: mk, math, lit, eng });
       }
     });
 
-    // Sort scores
     student.scores.sort((a, b) => a.month.localeCompare(b.month));
+    students.push(student);
+  }
 
-    return student;
-  }).filter(Boolean) as Student[];
+  return students;
 }
 
 export async function POST(req: Request) {

@@ -199,8 +199,11 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
 
         // 2. Filter list
         let list = visibleStudents.filter((s) => {
-            // A. Class Filter (Absolute Match)
-            if (filterClass !== "ALL" && s.class !== filterClass) {
+            // A. Class Filter (Absolute Match) - Use trim and upper for robustness
+            const sClassNorm = (s.class || "").trim().toUpperCase();
+            const fClassNorm = filterClass.trim().toUpperCase();
+
+            if (fClassNorm !== "ALL" && sClassNorm !== fClassNorm) {
                 return false;
             }
 
@@ -208,12 +211,12 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
             if (q) {
                 const sName = (s.name || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
                 const sMhs = (s.mhs || "").toLowerCase();
-                const sClass = (s.class || "").toLowerCase();
+                const sClassRaw = (s.class || "").toLowerCase();
 
                 // Allow searching by Name (accent-insensitive), MHS, or Class
                 const matchesName = sName.includes(q);
                 const matchesMhs = sMhs.includes(q);
-                const matchesClass = sClass.includes(q);
+                const matchesClass = sClassRaw.includes(q);
 
                 if (!matchesName && !matchesMhs && !matchesClass) return false;
             }
