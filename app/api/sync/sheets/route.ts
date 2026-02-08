@@ -64,7 +64,9 @@ function normalizeRows(rows: any[]): Student[] {
         const valStr = String(r[key]).replace(",", ".");
         const val = parseFloat(valStr);
 
-        if (Number.isFinite(val)) {
+        // SAFETY NET: Chỉ chấp nhận điểm hợp lệ (0-20)
+        // Loại bỏ các giá trị rác như ngày tháng, tổng điểm, số serial...
+        if (Number.isFinite(val) && val >= 0 && val <= 20) {
           let sc = student.scores.find(s => s.month === month);
           if (!sc) {
             sc = { month, math: null, lit: null, eng: null };
