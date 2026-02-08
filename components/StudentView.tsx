@@ -238,7 +238,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                     </div>
                     <div>
                       <div className="text-lg font-bold text-slate-800">Ngữ Văn</div>
-                      <div className="text-xs text-slate-500 font-medium tracking-wide">VĂN HỌC</div>
+                      <div className="text-xs text-slate-500 font-medium tracking-wide">NGỮ VĂN</div>
                     </div>
                   </div>
                   <ScoreChart data={chartData} stats={student.dashboardStats} subject="lit" />
