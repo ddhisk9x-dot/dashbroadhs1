@@ -15,8 +15,8 @@ type Student = {
   activeActions?: any[];
 };
 
-async function loadStudents(_sheetName?: string): Promise<Student[]> {
-  const state = await getAppState();
+async function loadStudents(sheetName?: string): Promise<Student[]> {
+  const state = await getAppState(sheetName);
   return Array.isArray(state.students) ? state.students : [];
 }
 
