@@ -104,6 +104,53 @@ async function fetchFromAppsScript(sheetName: string): Promise<any[][]> {
   return json.data;
 }
 
+// Parse various month formats including ISO dates
+function parseMonthValue(v: any): string {
+  const s = String(v || "").trim();
+
+  // Already in YYYY-MM format
+  if (/^\d{4}-\d{2}$/.test(s)) return s;
+
+  // Format: YYYY.MM
+  if (/^\d{4}\.\d{2}$/.test(s)) return s.replace(".", "-");
+
+  // ISO date format: 2025-11-01T07:00:00.000Z
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-\d{2}T/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2]}`;
+  }
+
+  return "";
+}
+
+// Parse score that might have been converted to a date by Google Sheets
+function parseScoreValue(v: any): number | null {
+  if (v === undefined || v === null || v === "") return null;
+
+  const s = String(v).trim();
+
+  // Normal number
+  const n = parseFloat(s.replace(",", "."));
+  if (Number.isFinite(n) && n >= 0 && n <= 15) return n;
+
+  // Check if it's an ISO date that should be a score (e.g., "11.3" became "2026-03-11")
+  // Pattern: YYYY-MM-DDT... where DD might be the decimal and MM the integer part
+  const isoMatch = s.match(/^\d{4}-(\d{2})-(\d{2})T/);
+  if (isoMatch) {
+    // Try to recover: MM.DD format (e.g., 03-11 = 3.11? No, more likely 11.3)
+    // Actually when you type "11.3" in Google Sheets formatted as Date, 
+    // it interprets as "11/3/current_year" = March 11
+    // So month=3, day=11 means the original was likely "11.3" (reversed)
+    const month = parseInt(isoMatch[1], 10);
+    const day = parseInt(isoMatch[2], 10);
+    // The score was likely: day.month or day + month/10
+    const recoveredScore = day + month / 10;
+    if (recoveredScore >= 0 && recoveredScore <= 15) return recoveredScore;
+  }
+
+  return null;
+}
+
 async function doSyncFromSheet(opts?: SyncOpts) {
   const mode: SyncMode = opts?.mode ?? "new_only";
   const selectedMonths: string[] = Array.isArray(opts?.selectedMonths) ? opts!.selectedMonths! : [];
@@ -131,13 +178,13 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     throw new Error(`Missing column: MHS. Header preview: ${hPreview}`);
   }
 
-  // Forward fill month row để xử lý ô gộp
+  // Forward fill month row để xử lý ô gộp + parse ISO dates
   const filledMonthRow: string[] = [];
   let currentMonth = "";
   for (let i = 0; i < monthRow.length; i++) {
-    const v = String(monthRow[i] || "").trim().replace(".", "-");
-    if (isMonthKey(v)) {
-      currentMonth = v;
+    const parsed = parseMonthValue(monthRow[i]);
+    if (parsed && isMonthKey(parsed)) {
+      currentMonth = parsed;
     }
     filledMonthRow[i] = currentMonth;
   }
@@ -147,6 +194,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   if (monthKeysAll.length === 0) {
     throw new Error('No month_key detected on row 1. Expected values like "2025-08".');
   }
+
 
   const supabase = createClient(supabaseUrl, serviceKey);
 
@@ -235,9 +283,9 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
       if (cMath < 0 && cLit < 0 && cEng < 0) continue;
 
-      const math = cMath >= 0 ? toNumberOrNull(row[cMath]) : null;
-      const lit = cLit >= 0 ? toNumberOrNull(row[cLit]) : null;
-      const eng = cEng >= 0 ? toNumberOrNull(row[cEng]) : null;
+      const math = cMath >= 0 ? parseScoreValue(row[cMath]) : null;
+      const lit = cLit >= 0 ? parseScoreValue(row[cLit]) : null;
+      const eng = cEng >= 0 ? parseScoreValue(row[cEng]) : null;
 
       if (math === null && lit === null && eng === null) continue;
 
