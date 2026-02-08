@@ -13,23 +13,13 @@ export const supabase = createClient(
 
 export type AppState = { students: any[] };
 
-export async function getAppState(sheetName: string = "main"): Promise<AppState> {
-  // HOTFIX: Force DIEM_2526 to read from "main" because "main" has the valid synced data.
-  // The 'DIEM_2526' row in DB contains corrupted/incomplete data from previous failed syncs.
-  const targetSheet = (sheetName === "DIEM_2526" || !sheetName) ? "main" : sheetName;
-
-  let { data, error } = await supabase
+// 100% RESTORED OLD LOGIC
+export async function getAppState(): Promise<AppState> {
+  const { data, error } = await supabase
     .from("app_state")
     .select("students_json")
-    .eq("id", targetSheet)
+    .eq("id", "main")
     .maybeSingle();
-
-  // Fallback to "main" if the specific sheet doesn't exist
-  if (!data && sheetName !== "main") {
-    const fallback = await supabase.from("app_state").select("students_json").eq("id", "main").maybeSingle();
-    data = fallback.data;
-    error = fallback.error;
-  }
 
   if (error) {
     if ((error as any).code === "PGRST116") return { students: [] };
@@ -38,6 +28,8 @@ export async function getAppState(sheetName: string = "main"): Promise<AppState>
 
   return (data?.students_json as AppState) ?? { students: [] };
 }
+
+
 
 export async function setAppState(state: AppState): Promise<void> {
   const { error } = await supabase

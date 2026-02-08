@@ -15,8 +15,8 @@ type Student = {
   activeActions?: any[];
 };
 
-async function loadStudents(sheetName?: string): Promise<Student[]> {
-  const state = await getAppState(sheetName);
+async function loadStudents(): Promise<Student[]> {
+  const state = await getAppState();
   return Array.isArray(state.students) ? state.students : [];
 }
 
@@ -27,10 +27,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const { searchParams } = new URL(req.url);
-    const sheetName = searchParams.get("sheet") || "DIEM_2526";
-
-    const all = await loadStudents(sheetName);
+    // RESTORE OLD LOGIC: Always read from main, ignore query params
+    const all = await loadStudents();
 
     // ✅ ADMIN: thấy tất cả
     if (session.role === "ADMIN") {
