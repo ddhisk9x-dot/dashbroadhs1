@@ -55,10 +55,11 @@ function normalizeRows(rows: any[]): Student[] {
     // Parse scores
     // Duyệt qua các key của row để tìm pattern "YYYY-MM SUBJECT"
     Object.keys(r).forEach(key => {
-      // Regex: 2025-09 TOÁN
-      const match = key.match(/^(\d{4}-\d{2})\s+(TOÁN|NGỮ VĂN|TIẾNG ANH)$/i);
+      // Regex: 2025-09 TOÁN hoặc 2025.09 TOÁN (accept cả dot và dash!)
+      const match = key.match(/^(\d{4}[-.]?\d{2})\s+(TOÁN|NGỮ VĂN|TIẾNG ANH)$/i);
       if (match) {
-        const month = match[1];
+        // Normalize month format: 2025.08 -> 2025-08
+        const month = match[1].replace(".", "-");
         const subj = match[2].toUpperCase();
         // Xử lý chuỗi số có dấu phẩy (Excel VN)
         const valStr = String(r[key]).replace(",", ".");
