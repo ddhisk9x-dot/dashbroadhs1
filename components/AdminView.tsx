@@ -693,10 +693,8 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
             const scoreObj = s.scores.find(sc => sc.month === monthKey);
             if (!scoreObj) return;
 
-            const MATH = scoreObj.math ?? 0;
-            const LIT = scoreObj.lit ?? 0;
-            const ENG = scoreObj.eng ?? 0;
-            const avg = (MATH + LIT + ENG) / 3;
+            const scores = [scoreObj.math, scoreObj.lit, scoreObj.eng].filter(s => typeof s === "number" && s !== null);
+            const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
             const reasons: string[] = [];
             let level: RiskLevel | null = null;
 
@@ -722,13 +720,19 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
                 }
             }
 
-            // Rule 4: Notice - Any single subject < 5.0
-            if ((MATH > 0 && MATH < 5.0) || (LIT > 0 && LIT < 5.0) || (ENG > 0 && ENG < 5.0)) {
+            const sMath = scoreObj.math;
+            const sLit = scoreObj.lit;
+            const sEng = scoreObj.eng;
+
+            // Rule 4: Notice - Any single subject < 5.0 (only if subject has score)
+            if ((sMath !== undefined && sMath !== null && sMath < 5.0) ||
+                (sLit !== undefined && sLit !== null && sLit < 5.0) ||
+                (sEng !== undefined && sEng !== null && sEng < 5.0)) {
                 if (!level) level = "NOTICE";
                 const weak: string[] = [];
-                if (MATH > 0 && MATH < 5.0) weak.push(`Toán: ${MATH}`);
-                if (LIT > 0 && LIT < 5.0) weak.push(`Văn: ${LIT}`);
-                if (ENG > 0 && ENG < 5.0) weak.push(`Anh: ${ENG}`);
+                if (sMath !== undefined && sMath !== null && sMath < 5.0) weak.push(`Toán: ${sMath}`);
+                if (sLit !== undefined && sLit !== null && sLit < 5.0) weak.push(`Văn: ${sLit}`);
+                if (sEng !== undefined && sEng !== null && sEng < 5.0) weak.push(`Anh: ${sEng}`);
                 if (weak.length) reasons.push(weak.join(", "));
             }
 
@@ -755,8 +759,11 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
 
             const curr = s.scores[idx];
             const prev = s.scores[idx - 1];
-            const currAvg = ((curr.math ?? 0) + (curr.lit ?? 0) + (curr.eng ?? 0)) / 3;
-            const prevAvg = ((prev.math ?? 0) + (prev.lit ?? 0) + (prev.eng ?? 0)) / 3;
+            const currScores = [curr.math, curr.lit, curr.eng].filter(s => typeof s === "number" && s !== null) as number[];
+            const prevScores = [prev.math, prev.lit, prev.eng].filter(s => typeof s === "number" && s !== null) as number[];
+
+            const currAvg = currScores.length ? currScores.reduce((a, b) => a + b, 0) / currScores.length : 0;
+            const prevAvg = prevScores.length ? prevScores.reduce((a, b) => a + b, 0) / prevScores.length : 0;
             const delta = currAvg - prevAvg;
 
             if (prevAvg > 0) {
@@ -855,10 +862,8 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
 
             // Check Academic Risk
             if (currentScoreObj) {
-                const MATH = currentScoreObj.math || 0;
-                const LIT = currentScoreObj.lit || 0;
-                const ENG = currentScoreObj.eng || 0;
-                const avg = (MATH + LIT + ENG) / 3;
+                const scores = [currentScoreObj.math, currentScoreObj.lit, currentScoreObj.eng].filter(s => typeof s === "number" && s !== null) as number[];
+                const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
 
                 // Rule 1: Low Avg
                 if (avg < 5.0 && avg > 0) {
@@ -869,7 +874,8 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
                 const idx = s.scores.findIndex(sc => sc.month === monthKey);
                 if (idx > 0) {
                     const prevScoreObj = s.scores[idx - 1];
-                    const prevAvg = ((prevScoreObj.math || 0) + (prevScoreObj.lit || 0) + (prevScoreObj.eng || 0)) / 3;
+                    const pScores = [prevScoreObj.math, prevScoreObj.lit, prevScoreObj.eng].filter(s => typeof s === "number" && s !== null) as number[];
+                    const prevAvg = pScores.length ? pScores.reduce((a, b) => a + b, 0) / pScores.length : 0;
                     if (prevAvg - avg > 1.5) {
                         risks.push({ student: s, reason: `Tụt điểm nhanh (-${(prevAvg - avg).toFixed(1)})`, type: "ACADEMIC" });
                     }
@@ -893,7 +899,11 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
             const ticksCount = countTicksForMonth(s, selectedMonth);
 
             const scoreObj = s.scores.find(sc => sc.month === selectedMonth);
-            const avg = scoreObj ? ((scoreObj.math || 0) + (scoreObj.lit || 0) + (scoreObj.eng || 0)) / 3 : 0;
+            let avg = 0;
+            if (scoreObj) {
+                const scores = [scoreObj.math, scoreObj.lit, scoreObj.eng].filter(s => typeof s === "number" && s !== null) as number[];
+                avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+            }
 
             if (avg === 0 && ticksCount === 0) return null; // Skip empty data
             return { x: ticksCount, y: parseFloat(avg.toFixed(1)), name: s.name, class: s.class, mhs: s.mhs };
