@@ -69,17 +69,22 @@ async function persistReportAndActions(mhs: string, report: AIReport, actions: S
     return data;
 }
 
-// Helper to count ticks safely (checks archived month, then falls back to activeActions filtered by date)
+// Helper to count ticks safely (Prioritize activeActions for current data)
 function countTicksForMonth(student: Student, month: string): number {
+    // 1. Check activeActions first (Live Data)
+    const aa = Array.isArray((student as any).activeActions) ? ((student as any).activeActions as StudyAction[]) : [];
+    const activeTicks = aa.reduce((acc, a) =>
+        acc + (Array.isArray(a.ticks) ? a.ticks.filter(t => t.completed && t.date && t.date.startsWith(month)).length : 0), 0);
+
+    if (activeTicks > 0) return activeTicks;
+
+    // 2. Fallback: Check archive (actionsByMonth)
     const abm = safeActionsByMonth(student);
-    // 1. Try to find precise snapshot for the month
     if (abm && abm[month] && Array.isArray(abm[month])) {
         return abm[month].reduce((acc, a) => acc + (Array.isArray(a.ticks) ? a.ticks.filter(t => t.completed).length : 0), 0);
     }
-    // 2. Fallback: Scan activeActions for ticks in selectedMonth
-    const aa = Array.isArray((student as any).activeActions) ? ((student as any).activeActions as StudyAction[]) : [];
-    return aa.reduce((acc, a) =>
-        acc + (Array.isArray(a.ticks) ? a.ticks.filter(t => t.completed && t.date && t.date.startsWith(month)).length : 0), 0);
+
+    return 0;
 }
 
 export default function AdminView({ user, students, onLogout, onImportData, onUpdateStudentReport }: AdminViewProps) {
