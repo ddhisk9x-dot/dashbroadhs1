@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { User, Student, ScoreData, StudyAction, AIReport } from "../types";
 import { LogOut, Users, School, LayoutDashboard, Menu, X, RefreshCw, AlertCircle, Edit, Trash2, GraduationCap, ClipboardList, BarChart as BarChartIcon } from "lucide-react";
 import { api, generateStudentReport } from "../services/clientApi";
@@ -431,27 +431,52 @@ function AdminDashboardTab({ students }: { students: Student[] }) {
     );
 }
 
-interface AdminUser extends User { id?: string; lastLogin?: string; }
+interface AdminUser { username: string; name: string; id?: string; lastLogin?: string; role: string; teacherClass?: string; }
 function AdminUsersTab() {
-    const [users, setUsers] = useState<AdminUser[]>([
-        { username: "admin", name: "Quản trị viên", role: "ADMIN" as any },
-        { username: "gv01", name: "Nguyễn Văn A", role: "TEACHER" as any },
-        { username: "gv02", name: "Trần Thị B", role: "TEACHER" as any },
-        { username: "gv03", name: "Trần Thị C", role: "TEACHER" as any },
-    ]);
+    const [users, setUsers] = useState<AdminUser[]>([]);
+    const [loading, setLoading] = useState(false);
+
+    // Function to fetch users from API (reads Google Sheet)
+    const fetchUsers = useCallback(async () => {
+        setLoading(true);
+        try {
+            const res = await api.getUsers();
+            if (res && res.ok && res.users) {
+                setUsers(res.users);
+            } else {
+                console.error("Failed to fetch users:", res.error);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchUsers();
+    }, [fetchUsers]);
+
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
-    const handleDelete = (username: string) => { if (confirm(`Xóa ${username}?`)) setUsers(users.filter((u) => u.username !== username)); };
-    const handleEdit = (user: AdminUser) => { setEditingUser(user); setIsModalOpen(true); };
-    const handleSave = (user: AdminUser) => {
-        if (editingUser) setUsers(users.map(u => u.username === user.username ? user : u));
-        else setUsers([...users, user]);
-        setIsModalOpen(false); setEditingUser(null);
+    const handleDelete = (username: string) => { if (confirm(`Xóa ${username}?`)) alert("Chức năng xóa chưa được hỗ trợ với Google Sheets (vui lòng xóa trực tiếp trên Sheet)."); };
+    const handleEdit = (user: AdminUser) => { alert("Vui lòng chỉnh sửa trực tiếp trên Google Sheet."); };
+
+    const handleSave = () => {
+        setIsModalOpen(false);
+        setEditingUser(null);
+        // Refresh after save (delay slightly for sheet propagation)
+        setTimeout(fetchUsers, 2000);
     };
     return (
         <div className="space-y-6 max-w-5xl mx-auto">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <h2 className="text-2xl font-bold text-slate-800">Quản lý Người dùng (Thủ công)</h2>
+                <div className="flex items-center gap-3">
+                    <h2 className="text-2xl font-bold text-slate-800">Quản lý Người dùng (Sheet)</h2>
+                    <button onClick={fetchUsers} disabled={loading} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full text-slate-600 transition-colors" title="Tải lại danh sách">
+                        <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+                    </button>
+                </div>
                 <button onClick={() => { setEditingUser(null); setIsModalOpen(true); }} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2"><Users size={18} /><span>Thêm User</span></button>
             </div>
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">

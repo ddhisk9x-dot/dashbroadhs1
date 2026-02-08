@@ -132,6 +132,10 @@ export const api = {
       body: JSON.stringify(teacher),
     });
   },
+
+  async getUsers() {
+    return jfetch<{ ok: boolean; users?: any[]; error?: string }>("/api/admin/users");
+  }
 };
 
 export const generateStudentReport = api.generateStudentReport;
