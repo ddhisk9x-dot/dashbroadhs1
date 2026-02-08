@@ -100,7 +100,7 @@ export default function ScoreChart({ data, stats, subject }: Props) {
           />
 
           <YAxis
-            domain={[0, 10]}
+            domain={[0, 15]}
             tick={{ fontSize: 11, fill: "#64748b" }}
             axisLine={false}
             tickLine={false}
