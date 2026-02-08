@@ -718,24 +718,33 @@ function AdminAnalyticsTab({ students, selectedYear }: { students: Student[], se
     // Initial Selection Logic:
     // If current month is in availableMonths -> select it.
     // If not, select the latest month in availableMonths (usually May).
-    const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    // Initial Selection Logic (Smart):
+    // 1. If current month is in academic year -> Select it.
+    // 2. Else -> Find LATEST month that has data (scanned from all students).
+    // 3. Fallback -> First month of academic year (usually August).
+    const getBestMonth = (year: string, studs: Student[]) => {
+        const academicMonths = getAcademicYearMonths(year);
         const currentM = isoMonth(new Date());
-        const academicMonths = getAcademicYearMonths(selectedYear);
+
+        // 1. Current month is valid?
         if (academicMonths.includes(currentM)) return currentM;
-        return academicMonths[academicMonths.length - 1] || currentM;
-    });
+
+        // 2. Latest data month?
+        const dataMonths = new Set<string>();
+        studs.forEach(st => st.scores?.forEach(sc => dataMonths.add(sc.month)));
+        const validDataMonths = Array.from(dataMonths).filter(m => academicMonths.includes(m)).sort();
+        if (validDataMonths.length > 0) return validDataMonths[validDataMonths.length - 1]; // Last one
+
+        // 3. Fallback to start of year (Aug)
+        return academicMonths[0] || currentM;
+    };
+
+    const [selectedMonth, setSelectedMonth] = useState<string>(() => getBestMonth(selectedYear, students));
 
     // Update selectedMonth when year changes
     useEffect(() => {
-        const academicMonths = getAcademicYearMonths(selectedYear);
-        const currentM = isoMonth(new Date());
-        if (academicMonths.includes(currentM)) {
-            setSelectedMonth(currentM);
-        } else {
-            // Default to latest month of that academic year (usually May)
-            setSelectedMonth(academicMonths[academicMonths.length - 1] || currentM);
-        }
-    }, [selectedYear]);
+        setSelectedMonth(getBestMonth(selectedYear, students));
+    }, [selectedYear, students]);
 
     // =====================================================
     // NEW: Pure Academic Risk Report (Score-only, NO ticks)
