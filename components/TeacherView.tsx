@@ -142,36 +142,21 @@ const TeacherView: React.FC<TeacherViewProps> = ({
   }, [visibleStudents]);
 
   const filteredStudents = useMemo(() => {
-    // 1. Normalize Search Term
-    const rawQ = searchTerm.trim().toUpperCase();
-    // Remove accents for searching name, but keep original for class check
-    const qNorm = rawQ.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const q = searchTerm.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const fClass = filterClass.trim().toUpperCase();
 
-    // 2. Filter list
     let list = visibleStudents.filter((s) => {
-      const sClassNorm = (s.class || "").trim().toUpperCase();
+      const sClass = (s.class || "").trim().toUpperCase();
+      const sName = (s.name || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const sMhs = (s.mhs || "").trim().toLowerCase();
 
-      // A. Dropdown Filter
-      const fClassNorm = filterClass.trim().toUpperCase();
-      if (fClassNorm !== "ALL" && sClassNorm !== fClassNorm) return false;
+      // 1. Dropdown Filter (Strict)
+      if (fClass !== "ALL" && sClass !== fClass) return false;
 
-      // B. Search Box Filter
-      if (rawQ) {
-        // PRECISION FIX: If the search query is EXACTLY one of the class names, restrict to THAT class
-        if (uniqueClasses.includes(rawQ)) {
-          if (sClassNorm !== rawQ) return false;
-          return true; // Match found
-        }
-
-        // If it's a partial class match (like "8A"), and NOT a valid MHS/Name yet, we prioritize class
-        const sName = (s.name || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        const sMhs = (s.mhs || "").toLowerCase();
-        const sClassRaw = (s.class || "").toLowerCase();
-        const searchLow = rawQ.toLowerCase();
-
-        return sName.includes(qNorm.toLowerCase()) || sMhs.includes(searchLow) || sClassRaw.includes(searchLow);
+      // 2. Search Box Filter (Fuzzy)
+      if (q) {
+        return sName.includes(q) || sMhs.includes(q) || sClass.toLowerCase().includes(q);
       }
-
       return true;
     });
 

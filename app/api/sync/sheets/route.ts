@@ -99,8 +99,8 @@ function normalizeRows(rows: any[][]): Student[] {
         if (idx < 0) return null;
         const v = String(row[idx] || "").replace(",", ".");
         const n = parseFloat(v);
-        // CRITICAL FIX: Scores can be > 10 in some scales. Set limit to 20.
-        return (Number.isFinite(n) && n >= 0 && n <= 20) ? n : null;
+        // Scores are up to 15 as per user's latest instruction
+        return (Number.isFinite(n) && n >= 0 && n <= 15) ? n : null;
       };
 
       const math = parseVal(cMath);
