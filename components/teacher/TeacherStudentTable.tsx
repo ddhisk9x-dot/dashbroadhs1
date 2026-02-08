@@ -184,7 +184,6 @@ export default function TeacherStudentTable({
 
                                         <td className="px-6 py-5 text-sm font-bold text-slate-700">
                                             {student.name}
-                                            {lastScore && <div className="text-[10px] text-slate-400 font-normal mt-0.5">{lastScore.month}</div>}
                                         </td>
 
                                         <td className="px-6 py-5 text-sm text-slate-600">
