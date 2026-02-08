@@ -68,7 +68,6 @@ function toNumberOrNull(v: string | undefined): number | null {
 
 type ScoreData = { month: string; math: number | null; lit: number | null; eng: number | null };
 
-// ✅ Student có thêm actionsByMonth để giữ tick theo tháng
 type Student = {
   mhs: string;
   name: string;
@@ -77,7 +76,7 @@ type Student = {
   aiReport?: any;
 
   actionsByMonth?: Record<string, any[]>;
-  activeActions?: any[]; // giữ tương thích UI cũ
+  activeActions?: any[];
 };
 
 function looksLikeHtml(text: string): boolean {
@@ -118,13 +117,9 @@ function getLatestScoreMonth(scores: ScoreData[] | undefined): string {
 }
 
 function getTaskMonthFromScores(scores: ScoreData[] | undefined): string {
-  // điểm tháng N -> nhiệm vụ tháng N+1
   return nextMonthKey(getLatestScoreMonth(scores));
 }
 
-// ✅ migrate dữ liệu cũ:
-// - nếu chỉ có activeActions -> đưa vào actionsByMonth theo "tháng nhiệm vụ hiện hành" (N+1)
-// - activeActions sẽ trỏ vào tháng nhiệm vụ nếu có, để UI cũ vẫn chạy
 function normalizeActionsStorage(st: Student): Student {
   const s: Student = { ...st };
   s.actionsByMonth = s.actionsByMonth && typeof s.actionsByMonth === "object" ? s.actionsByMonth : {};
@@ -132,18 +127,15 @@ function normalizeActionsStorage(st: Student): Student {
   const aa = Array.isArray(s.activeActions) ? s.activeActions : [];
   const taskMonth = getTaskMonthFromScores(s.scores);
 
-  // migrate legacy -> actionsByMonth[taskMonth] nếu chưa có dữ liệu tháng đó
   if (aa.length) {
     if (!Array.isArray(s.actionsByMonth![taskMonth]) || s.actionsByMonth![taskMonth]!.length === 0) {
       s.actionsByMonth![taskMonth] = aa;
     }
   }
 
-  // ưu tiên activeActions = nhiệm vụ tháng hiện hành (taskMonth)
   if (Array.isArray(s.actionsByMonth![taskMonth]) && s.actionsByMonth![taskMonth]!.length > 0) {
     s.activeActions = s.actionsByMonth![taskMonth];
   } else {
-    // fallback: nếu có tháng nào trong actionsByMonth thì lấy tháng lớn nhất
     const keys = Object.keys(s.actionsByMonth || {}).filter((k) => isMonthKey(k)).sort();
     const latestTask = keys[keys.length - 1];
     if (latestTask && Array.isArray(s.actionsByMonth![latestTask])) s.activeActions = s.actionsByMonth![latestTask];
@@ -176,7 +168,6 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   const contentType = resp.headers.get("content-type") || "";
   const text = await resp.text();
 
-  // Nếu URL đang trỏ vào trang HTML chứ không phải CSV export
   if (looksLikeHtml(text) || contentType.includes("text/html")) {
     const preview = text.slice(0, 200).replace(/\s+/g, " ");
     throw new Error(
@@ -191,8 +182,8 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   // 2) Validate
   if (rows.length < 3) throw new Error("CSV must have 2 header rows + data rows");
 
-  const monthRow = rows[0] ?? []; // Row 1: month_key
-  const headerRow = rows[1] ?? []; // Row 2: column names
+  const monthRow = rows[0] ?? [];
+  const headerRow = rows[1] ?? [];
   const header2 = headerRow.map(normHeader);
 
   const idxMhs = header2.indexOf("MHS");
@@ -206,7 +197,6 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   if (idxName < 0) throw new Error("Missing column: HỌ VÀ TÊN");
   if (idxClass < 0) throw new Error("Missing column: LỚP");
 
-  // Lấy month keys đúng định dạng yyyy-mm
   const monthKeysAll = Array.from(
     new Set(monthRow.map((x) => String(x ?? "").trim()).filter((x) => isMonthKey(x)))
   );
@@ -217,7 +207,6 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
   const supabase = createClient(supabaseUrl, serviceKey);
 
-  // 0) Load dữ liệu cũ trước để biết tháng đã có + giữ aiReport/actions/ticks
   const { data: oldState, error: oldErr } = await supabase
     .from("app_state")
     .select("students_json")
@@ -239,13 +228,11 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
   const newMonthsDetected = monthKeysAll.filter((m) => !oldMonths.has(m));
 
-  // Quyết định months sẽ sync dựa trên mode
   let monthKeysToSync: string[] = monthKeysAll;
 
   if (mode === "new_only") {
     monthKeysToSync = monthKeysAll.filter((m) => !oldMonths.has(m));
 
-    // ✅ NEW: nếu có HS mới mà không có "tháng mới" -> sync tất cả tháng để HS mới có điểm
     let hasNewStudents = false;
     for (let r = 2; r < rows.length; r++) {
       const row = rows[r] ?? [];
@@ -277,7 +264,6 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     return -1;
   };
 
-  // 3) Build students from sheet for chosen months
   const studentMap = new Map<string, Student>();
 
   for (let r = 2; r < rows.length; r++) {
@@ -319,11 +305,9 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
   const newStudents = Array.from(studentMap.values()).map(normalizeActionsStorage);
 
-  // 4) Merge: cập nhật scores/name/class từ sheet, giữ aiReport + actionsByMonth
   const mergedStudents: Student[] = newStudents.map((ns) => {
     const old = oldMap.get(String(ns.mhs).trim());
 
-    // merge scores: chỉ replace monthsToSync, giữ các tháng khác
     let scoresMerged: ScoreData[] = ns.scores ?? [];
     if (old?.scores?.length) {
       const replaceMonths = new Set(monthKeysToSync);
@@ -342,7 +326,6 @@ async function doSyncFromSheet(opts?: SyncOpts) {
       actionsByMonth: mergedABM,
     };
 
-    // activeActions ưu tiên theo "tháng nhiệm vụ" hiện hành
     const taskMonth = getTaskMonthFromScores(merged.scores);
     if (Array.isArray(merged.actionsByMonth?.[taskMonth])) merged.activeActions = merged.actionsByMonth![taskMonth];
     else merged.activeActions = old?.activeActions ?? ns.activeActions ?? [];
@@ -350,12 +333,10 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     return normalizeActionsStorage(merged);
   });
 
-  // 5) Giữ học sinh cũ không có trong sheet mới (để không mất dữ liệu)
   for (const [mhs, old] of oldMap.entries()) {
     if (!mergedStudents.some((s) => s.mhs === mhs)) mergedStudents.push(old);
   }
 
-  // 6) Save lại app_state
   const { error } = await supabase
     .from("app_state")
     .upsert({ id: "main", students_json: { students: mergedStudents } }, { onConflict: "id" });
@@ -373,9 +354,6 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   };
 }
 
-/**
- * POST: Admin bấm nút trong app
- */
 export async function POST(req: Request) {
   const session = await getSession();
   if (!session || session.role !== "ADMIN") {
@@ -398,10 +376,6 @@ export async function POST(req: Request) {
   }
 }
 
-/**
- * GET: dùng cho Cron (server-only secret)
- * gọi: /api/sync/sheets?secret=...
- */
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const secret = url.searchParams.get("secret");
