@@ -14,11 +14,14 @@ export const supabase = createClient(
 export type AppState = { students: any[] };
 
 export async function getAppState(sheetName: string = "main"): Promise<AppState> {
-  // Query the requested sheet (default: main where good data exists)
+  // HOTFIX: Force DIEM_2526 to read from "main" because "main" has the valid synced data.
+  // The 'DIEM_2526' row in DB contains corrupted/incomplete data from previous failed syncs.
+  const targetSheet = (sheetName === "DIEM_2526" || !sheetName) ? "main" : sheetName;
+
   let { data, error } = await supabase
     .from("app_state")
     .select("students_json")
-    .eq("id", sheetName)
+    .eq("id", targetSheet)
     .maybeSingle();
 
   // Fallback to "main" if the specific sheet doesn't exist
