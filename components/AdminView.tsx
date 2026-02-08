@@ -199,26 +199,26 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
 
         // 2. Filter list
         let list = visibleStudents.filter((s) => {
-            // A. Class Filter (Absolute Match) - Use trim and upper for robustness
+            // A. Class Filter (Dropdown)
             const sClassNorm = (s.class || "").trim().toUpperCase();
             const fClassNorm = filterClass.trim().toUpperCase();
+            if (fClassNorm !== "ALL" && sClassNorm !== fClassNorm) return false;
 
-            if (fClassNorm !== "ALL" && sClassNorm !== fClassNorm) {
-                return false;
-            }
-
-            // B. Search Filter (Relative Match)
+            // B. Search Filter (Search Box)
             if (q) {
+                // Precision Fix: If search query looks like a class (e.g., "8A0", "8A", "9A1"), do strict match on class
+                const isClassPattern = /^\d+[A-Z]\d*$/.test(q.toUpperCase());
+                if (isClassPattern) {
+                    if (sClassNorm !== q.toUpperCase()) return false;
+                    return true;
+                }
+
+                // Normal fuzzy search for other strings (Names, MHS)
                 const sName = (s.name || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
                 const sMhs = (s.mhs || "").toLowerCase();
                 const sClassRaw = (s.class || "").toLowerCase();
 
-                // Allow searching by Name (accent-insensitive), MHS, or Class
-                const matchesName = sName.includes(q);
-                const matchesMhs = sMhs.includes(q);
-                const matchesClass = sClassRaw.includes(q);
-
-                if (!matchesName && !matchesMhs && !matchesClass) return false;
+                return sName.includes(q) || sMhs.includes(q) || sClassRaw.includes(q);
             }
 
             return true;

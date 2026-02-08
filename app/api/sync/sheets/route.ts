@@ -38,11 +38,34 @@ async function fetchFromAppsScript(sheetName: string): Promise<any[]> {
 function normalizeRows(rows: any[][]): Student[] {
   if (rows.length < 3) return [];
 
-  const monthRow = rows[0] || [];
+  const rawMonthRow = rows[0] || [];
   const headerRow = rows[1] || [];
 
   const norm = (v: any) => String(v ?? "").trim().toUpperCase();
   const headerNorm = headerRow.map(norm);
+
+  // --- REPAIR: Forward fill month Row (Handle merged cells) ---
+  const monthRow: string[] = [];
+  let currentMonth = "";
+  for (let i = 0; i < rawMonthRow.length; i++) {
+    const v = String(rawMonthRow[i] || "").trim().replace(".", "-");
+    // Flexible month regex: YYYY-MM or YYYY.MM
+    if (/^\d{4}[-.]\d{2}$/.test(v)) {
+      currentMonth = v.replace(".", "-");
+    }
+    monthRow[i] = currentMonth;
+  }
+
+  // Identify available months from processed monthRow
+  const monthKeysAll = Array.from(new Set(monthRow.filter(m => m !== "")));
+
+  const getCol = (mk: string, subjNorm: string) => {
+    for (let i = 0; i < monthRow.length; i++) {
+      // Fuzzy match subject: "TOÁN" matches "Môn Toán", "Toán 9"...
+      if (monthRow[i] === mk && (headerNorm[i] === subjNorm || headerNorm[i].includes(subjNorm))) return i;
+    }
+    return -1;
+  };
 
   // Helper to find key fuzzily among headers
   const findIdx = (candidates: string[]) => {
@@ -62,20 +85,6 @@ function normalizeRows(rows: any[][]): Student[] {
   const idxClass = findIdx(["LỚP", "LOP", "CLASS"]);
 
   if (idxMhs < 0) return [];
-
-  // Identify available months from Row 0
-  const isMonthKey = (x: string) => /^\d{4}[-.]\d{2}$/.test(String(x || "").trim());
-  const monthKeysAll = Array.from(new Set(
-    monthRow.map(x => String(x || "").trim().replace(".", "-")).filter(isMonthKey)
-  ));
-
-  const getCol = (mk: string, subjNorm: string) => {
-    for (let i = 0; i < monthRow.length; i++) {
-      const rowMk = String(monthRow[i] || "").trim().replace(".", "-");
-      if (rowMk === mk && headerNorm[i] === subjNorm) return i;
-    }
-    return -1;
-  };
 
   const students: Student[] = [];
 
@@ -103,7 +112,8 @@ function normalizeRows(rows: any[][]): Student[] {
         if (idx < 0) return null;
         const v = String(row[idx] || "").replace(",", ".");
         const n = parseFloat(v);
-        return (Number.isFinite(n) && n >= 0 && n <= 20) ? n : null;
+        // Precision filtering: score must be between 0 and 10 (inclusive)
+        return (Number.isFinite(n) && n >= 0 && n <= 10) ? n : null;
       };
 
       const math = parseVal(cMath);
@@ -141,7 +151,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "No student data found in sheet " + sheetName });
     }
 
-    // 2. Load old state from "main" (where good data exists)
+    // 2. Load old state from "main"
     const supabaseUrl = process.env.SUPABASE_URL!;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     const supabase = createClient(supabaseUrl, serviceKey);
@@ -149,69 +159,58 @@ export async function POST(req: Request) {
     const { data: oldData } = await supabase
       .from("app_state")
       .select("students_json")
-      .eq("id", "main") // Always read from main
+      .eq("id", "main")
       .maybeSingle();
 
     const oldStudents = (oldData?.students_json?.students as Student[]) || [];
-    // Normalize old keys for robust matching
-    // SMART RESCUE: If duplicates exist (String vs Number MHS), prefer the one WITH data.
     const oldMap = new Map<string, Student>();
 
     oldStudents.forEach(s => {
       const key = String(s.mhs || "").trim().toUpperCase();
       const existing = oldMap.get(key);
-
-      // If no entry yet, set it
       if (!existing) {
         oldMap.set(key, s);
-        return;
+      } else {
+        // Prefer record with data
+        const currentHasData = !!(s.aiReport || Object.keys(s.actionsByMonth || {}).length > 0 || (s.scores && s.scores.length > 0));
+        const existingHasData = !!(existing.aiReport || Object.keys(existing.actionsByMonth || {}).length > 0 || (existing.scores && existing.scores.length > 0));
+        if (currentHasData && !existingHasData) oldMap.set(key, s);
       }
-
-      // If duplicate found, compare "richness"
-      const existingHasData = !!(existing.aiReport || Object.keys(existing.actionsByMonth || {}).length > 0);
-      const currentHasData = !!(s.aiReport || Object.keys(s.actionsByMonth || {}).length > 0);
-
-      // If current has data and existing doesn't, overwrite. 
-      // If both have data, we usually keep the latest one (default), or maybe just keep existing?
-      // Let's bias towards the one that LOOKS like the original String type if data is equal?
-      // Priority: Has Data > Is String type > Index
-
-      if (currentHasData && !existingHasData) {
-        oldMap.set(key, s);
-      }
-      // If both have data, keep existing (earlier one might be better? or later? Hard to say. 
-      // Assuming "Bad Sync" added new empty records LATER, we assume the EARLIER ones (or the ones already set) are better if they have data.
-      // Actually, if existing has data, we DON'T overwrite with an empty one.
     });
 
-    // 3. Merge Logic (Preserve AI Reports & Actions)
+    // 3. Merge Logic (Fixing the data loss issue)
     const mergedStudents = newStudents.map(ns => {
-      // Normalize new key
       const nsKey = String(ns.mhs || "").trim().toUpperCase();
       const old = oldMap.get(nsKey);
 
       if (!old) return ns;
 
+      // --- REPAIR: MERGE SCORES MONTH BY MONTH ---
+      const scoresMap = new Map<string, ScoreData>();
+      // Seed with old scores
+      if (Array.isArray(old.scores)) {
+        old.scores.forEach(sc => scoresMap.set(sc.month, sc));
+      }
+      // Overwrite/Add with new scores from sheet
+      if (Array.isArray(ns.scores)) {
+        ns.scores.forEach(sc => scoresMap.set(sc.month, sc));
+      }
+      const mergedScores = Array.from(scoresMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+
       return {
         ...ns,
-        // Ensure we explicitly keep MHS format if needed, OR keep new one.
-        // Identify & Merge Metadata
-        aiReport: old.aiReport || ns.aiReport, // Prefer old AI, but if ns has it (unlikely), keep it
+        scores: mergedScores,
+        aiReport: old.aiReport || ns.aiReport,
         actionsByMonth: old.actionsByMonth || ns.actionsByMonth || {},
         activeActions: old.activeActions || ns.activeActions || []
       };
     });
 
-    // Option: Giữ lại học sinh cũ đã bị xóa khỏi sheet?
+    // Keep students not in the latest sheet
     if (mode !== "overwrite") {
-      // Create a set of MHS present in mergedStudents for fast lookup
       const mergedMhsSet = new Set(mergedStudents.map(s => String(s.mhs).trim().toUpperCase()));
-
       for (const [key, old] of oldMap) {
-        if (!mergedMhsSet.has(key)) {
-          // Only push if it has valuable data? Or just keep it?
-          mergedStudents.push(old);
-        }
+        if (!mergedMhsSet.has(key)) mergedStudents.push(old);
       }
     }
 
