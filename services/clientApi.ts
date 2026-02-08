@@ -118,6 +118,20 @@ export const api = {
       body: JSON.stringify(opts || { mode: "new_only" }),
     });
   },
+
+  async addStudent(student: { mhs: string; name: string; className: string }) {
+    return jfetch<{ ok: boolean; error?: string }>("/api/admin/add-student", {
+      method: "POST",
+      body: JSON.stringify(student),
+    });
+  },
+
+  async addTeacher(teacher: { name: string; teacherClass: string; username: string; password: string; note?: string }) {
+    return jfetch<{ ok: boolean; error?: string }>("/api/admin/add-teacher", {
+      method: "POST",
+      body: JSON.stringify(teacher),
+    });
+  },
 };
 
 export const generateStudentReport = api.generateStudentReport;

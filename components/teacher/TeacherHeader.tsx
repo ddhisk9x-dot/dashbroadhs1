@@ -16,8 +16,8 @@ interface TeacherHeaderProps {
     visibleStudents: Student[];
     onLogout: () => void;
     onBulkGenerate: () => void;
-    onSyncSheet: () => void;
     onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onAddStudent?: () => void;
     isSyncing: boolean;
     isBulkProcessing: boolean;
 }
@@ -37,6 +37,7 @@ export default function TeacherHeader({
     onBulkGenerate,
     onSyncSheet,
     onFileUpload,
+    onAddStudent,
     isSyncing,
     isBulkProcessing,
 }: TeacherHeaderProps) {
@@ -141,6 +142,16 @@ export default function TeacherHeader({
                                 <span className="hidden xl:inline">Excel</span>
                                 <input type="file" accept=".xlsx,.xls" className="hidden" onChange={onFileUpload} />
                             </label>
+
+                            {onAddStudent && (
+                                <button
+                                    onClick={onAddStudent}
+                                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white text-sm font-bold rounded-xl shadow-md hover:shadow-lg shadow-pink-500/20 transform hover:-translate-y-0.5 transition-all"
+                                >
+                                    <Users size={16} />
+                                    <span className="hidden xl:inline">Thêm HS</span>
+                                </button>
+                            )}
                         </>
                     )}
 
@@ -155,6 +166,6 @@ export default function TeacherHeader({
                     </button>
                 </div>
             </div>
-        </header>
+        </header >
     );
 }

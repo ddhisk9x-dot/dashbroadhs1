@@ -168,6 +168,8 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
     const [filterClass, setFilterClass] = useState("ALL");
     const [sortTicks, setSortTicks] = useState<"none" | "desc" | "asc">("none");
 
+    const [addStudentModalOpen, setAddStudentModalOpen] = useState(false);
+
     const teacherClass = ""; // Admin sees all classes by default or can filter
     const isTeacher = false; // Admin is NOT teacher, so they have FULL privileges (sync etc)
 
@@ -352,6 +354,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
                 visibleStudents={visibleStudents}
                 onLogout={() => { }}
                 onBulkGenerate={handleBulkGenerate} onSyncSheet={handleSyncSheet} onFileUpload={handleFileUpload}
+                onAddStudent={() => setAddStudentModalOpen(true)}
                 isSyncing={isSyncing} isBulkProcessing={!!bulkProgress}
             />
             <div className="p-4 sm:p-6">
@@ -373,6 +376,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
                     onUpdateReport={onUpdateStudentReport} persistReport={persistReportAndActions}
                 />
             )}
+            {addStudentModalOpen && <AddStudentModal onClose={() => setAddStudentModalOpen(false)} />}
         </div>
     )
 }
@@ -485,17 +489,63 @@ function UserModal({ user, onClose, onSave }: { user: AdminUser | null; onClose:
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl">
-                <h3 className="text-xl font-bold mb-4 text-slate-800">{user ? "Sửa User" : "Thêm User"}</h3>
+                <h3 className="text-xl font-bold mb-4 text-slate-800">{user ? "Sửa User (Local)" : "Thêm Giáo viên (Google Sheet)"}</h3>
+
+                {!user && (
+                    <div className="bg-blue-50 text-blue-800 p-3 rounded-lg mb-4 text-sm">
+                        Thêm vào Google Sheet: "Teachers". Hệ thống sẽ tự động cập nhật sau khi tải lại trang.
+                    </div>
+                )}
+
                 <div className="space-y-4">
-                    <div><label className="block text-sm font-medium mb-1">Tên</label><input value={name} onChange={e => setName(e.target.value)} className="w-full border rounded-lg px-3 py-2" /></div>
-                    <div><label className="block text-sm font-medium mb-1">Username</label><input value={username} onChange={e => setUsername(e.target.value)} disabled={!!user} className="w-full border rounded-lg px-3 py-2 disabled:bg-slate-100" /></div>
-                    <div><label className="block text-sm font-medium mb-1">Role</label><select value={role} onChange={e => setRole(e.target.value as any)} className="w-full border rounded-lg px-3 py-2"><option value="TEACHER">Giáo viên</option><option value="ADMIN">Admin</option></select></div>
+                    <div><label className="block text-sm font-medium mb-1">Tên Giáo viên</label><input value={name} onChange={e => setName(e.target.value)} className="w-full border rounded-lg px-3 py-2" /></div>
+                    <div><label className="block text-sm font-medium mb-1">Username (Tài khoản)</label><input value={username} onChange={e => setUsername(e.target.value)} disabled={!!user} className="w-full border rounded-lg px-3 py-2 disabled:bg-slate-100" /></div>
+
+                    {!user && (
+                        <>
+                            <div><label className="block text-sm font-medium mb-1">Lớp Chủ nhiệm (VD: 10A1)</label><input placeholder="Nhập lớp..." className="w-full border rounded-lg px-3 py-2" id="new_teacher_class" /></div>
+                            <div><label className="block text-sm font-medium mb-1">Mật khẩu mặc định</label><input type="text" placeholder="VD: 123456" className="w-full border rounded-lg px-3 py-2" id="new_teacher_pass" defaultValue="123456" /></div>
+                            <div><label className="block text-sm font-medium mb-1">Ghi chú (Tùy chọn)</label><textarea className="w-full border rounded-lg px-3 py-2" id="new_teacher_note"></textarea></div>
+                        </>
+                    )}
+
+                    {user && <div><label className="block text-sm font-medium mb-1">Role</label><select value={role} onChange={e => setRole(e.target.value as any)} className="w-full border rounded-lg px-3 py-2"><option value="TEACHER">Giáo viên</option><option value="ADMIN">Admin</option></select></div>}
                 </div>
-                <div className="flex justify-end gap-3 mt-6"><button onClick={onClose} className="text-slate-500">Hủy</button><button onClick={() => onSave({ username, name, role: role as any })} className="bg-blue-600 text-white px-4 py-2 rounded-lg">Lưu</button></div>
+
+                <div className="flex justify-end gap-3 mt-6">
+                    <button onClick={onClose} className="text-slate-500">Hủy</button>
+                    <button onClick={async () => {
+                        if (user) {
+                            onSave({ username, name, role: role as any });
+                        } else {
+                            // Add new teacher via API
+                            const cls = (document.getElementById("new_teacher_class") as HTMLInputElement).value;
+                            const pass = (document.getElementById("new_teacher_pass") as HTMLInputElement).value;
+                            const note = (document.getElementById("new_teacher_note") as HTMLTextAreaElement).value;
+
+                            if (!username || !name || !pass) { alert("Thiếu thông tin bắt buộc!"); return; }
+
+                            const btn = document.getElementById("btn-save-user");
+                            if (btn) btn.innerText = "Đang lưu...";
+
+                            try {
+                                const res = await api.addTeacher({ name, username, teacherClass: cls, password: pass, note });
+                                if (res && (res as any).ok) {
+                                    alert("Đã thêm giáo viên vào Google Sheet! Vui lòng đợi 1 chút rồi tải lại trang để thấy thay đổi.");
+                                    onClose();
+                                } else {
+                                    alert("Lỗi: " + ((res as any).error || "Unknown"));
+                                }
+                            } catch (e: any) { alert("Lỗi kết nối: " + e.message); }
+                            if (btn) btn.innerText = "Lưu";
+                        }
+                    }} id="btn-save-user" className="bg-blue-600 text-white px-4 py-2 rounded-lg">Lưu</button>
+                </div>
             </div>
         </div>
     );
 }
+
 
 interface ClassItem { id: string; name: string; teacherId?: string; studentCount: number; }
 function AdminClassesTab() {
@@ -1079,6 +1129,55 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
                 </div>
                 <div className="mt-4 text-center text-sm text-slate-500 italic">
                     * Dữ liệu dựa trên tổng số nhiệm vụ (ticks) hoàn thành của lớp chia cho sĩ số.
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function AddStudentModal({ onClose }: { onClose: () => void }) {
+    const [mhs, setMhs] = useState("");
+    const [name, setName] = useState("");
+    const [className, setClassName] = useState("");
+    const [loading, setLoading] = useState(false);
+
+    const handleSave = async () => {
+        if (!mhs || !name || !className) {
+            alert("Vui lòng điền đủ thông tin!");
+            return;
+        }
+        setLoading(true);
+        try {
+            const res = await api.addStudent({ mhs, name, className });
+            if (res && (res as any).ok) {
+                alert("Đã thêm học sinh vào Google Sheet! Vui lòng đợi 1 chút rồi bấm nút 'Đồng bộ' để cập nhật danh sách.");
+                onClose();
+            } else {
+                alert("Lỗi: " + ((res as any).error || "Unknown"));
+            }
+        } catch (e: any) {
+            alert("Lỗi kết nối: " + e.message);
+        }
+        setLoading(false);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl">
+                <h3 className="text-xl font-bold mb-4 text-slate-800">Thêm Học sinh (Google Sheet)</h3>
+                <div className="bg-blue-50 text-blue-800 p-3 rounded-lg mb-4 text-sm">
+                    Học sinh sẽ được thêm vào sheet. Bạn cần bấm nút "Đồng bộ" sau khi thêm để hiển thị trên hệ thống.
+                </div>
+                <div className="space-y-4">
+                    <div><label className="block text-sm font-medium mb-1">Mã Học sinh (MHS)</label><input value={mhs} onChange={e => setMhs(e.target.value)} placeholder="HS001" className="w-full border rounded-lg px-3 py-2" /></div>
+                    <div><label className="block text-sm font-medium mb-1">Họ và Tên</label><input value={name} onChange={e => setName(e.target.value)} placeholder="Nguyễn Văn A" className="w-full border rounded-lg px-3 py-2" /></div>
+                    <div><label className="block text-sm font-medium mb-1">Lớp</label><input value={className} onChange={e => setClassName(e.target.value)} placeholder="10A1" className="w-full border rounded-lg px-3 py-2" /></div>
+                </div>
+                <div className="flex justify-end gap-3 mt-6">
+                    <button onClick={onClose} className="text-slate-500">Hủy</button>
+                    <button onClick={handleSave} disabled={loading} className="bg-blue-600 text-white px-4 py-2 rounded-lg disabled:opacity-50">
+                        {loading ? "Đang lưu..." : "Lưu"}
+                    </button>
                 </div>
             </div>
         </div>
