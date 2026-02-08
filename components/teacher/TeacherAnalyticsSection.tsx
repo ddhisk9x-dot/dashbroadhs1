@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Student } from "../../types";
+import { Student, StudyAction } from "../../types";
 import { AlertCircle, TrendingUp } from "lucide-react";
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Cell
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Cell,
+    ScatterChart, Scatter, ReferenceLine
 } from "recharts";
 
 // Helper functions
@@ -14,6 +15,53 @@ function isoMonth(d: Date) {
     return `${y}-${m}`;
 }
 function isMonthKey(m: any) { return /^\d{4}-\d{2}$/.test(String(m || "").trim()); }
+
+function latestScoreMonth(st?: Student) {
+    const scores = Array.isArray(st?.scores) ? st!.scores : [];
+    const last = scores.length ? (scores[scores.length - 1] as any) : null;
+    const mk = String(last?.month || "").trim();
+    return isMonthKey(mk) ? mk : isoMonth(new Date());
+}
+
+function nextMonthKey(monthKey: string): string {
+    const mk = String(monthKey || "").trim();
+    if (!isMonthKey(mk)) return isoMonth(new Date());
+    const [yStr, mStr] = mk.split("-");
+    let y = parseInt(yStr, 10);
+    let m = parseInt(mStr, 10);
+    m += 1;
+    if (m === 13) { m = 1; y += 1; }
+    return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}`;
+}
+
+function inferredTaskMonth(st?: Student) { return nextMonthKey(latestScoreMonth(st)); }
+
+function safeActionsByMonth(student?: Student): Record<string, StudyAction[]> {
+    if (!student) return {};
+    const abm = (student as any)?.actionsByMonth;
+    if (abm && typeof abm === "object") return abm as Record<string, StudyAction[]>;
+    const taskMonth = inferredTaskMonth(student);
+    const aa = Array.isArray((student as any)?.activeActions) ? ((student as any).activeActions as StudyAction[]) : [];
+    return { [taskMonth]: aa };
+}
+
+// Helper to count ticks safely (Prioritize activeActions for current data)
+function countTicksForMonth(student: Student, month: string): number {
+    // 1. Check activeActions first (Live Data)
+    const aa = Array.isArray((student as any).activeActions) ? ((student as any).activeActions as StudyAction[]) : [];
+    const activeTicks = aa.reduce((acc, a) =>
+        acc + (Array.isArray(a.ticks) ? a.ticks.filter(t => t.completed && t.date && t.date.startsWith(month)).length : 0), 0);
+
+    if (activeTicks > 0) return activeTicks;
+
+    // 2. Fallback: Check archive (actionsByMonth)
+    const abm = safeActionsByMonth(student);
+    if (abm && abm[month] && Array.isArray(abm[month])) {
+        return abm[month].reduce((acc, a) => acc + (Array.isArray(a.ticks) ? a.ticks.filter(t => t.completed).length : 0), 0);
+    }
+
+    return 0;
+}
 
 interface TeacherAnalyticsSectionProps {
     students: Student[];
@@ -37,63 +85,64 @@ export default function TeacherAnalyticsSection({ students, teacherClass }: Teac
     }, [students]);
 
     // =====================================================
-    // Pure Academic Risk Report (Score-only, NO ticks)
+    // Combined Early Warning System (Academic + Engagement)
     // =====================================================
-    const pureAcademicRisk = useMemo(() => {
-        type RiskLevel = "DANGER" | "WARNING" | "NOTICE";
-        const risks: { student: Student, avgScore: number, level: RiskLevel, reasons: string[] }[] = [];
+    const riskData = useMemo(() => {
+        const risks: { student: Student, reason: string, type: "ACADEMIC" | "ENGAGEMENT" }[] = [];
         const monthKey = selectedMonth;
 
         students.forEach(s => {
-            const scoreObj = s.scores.find(sc => sc.month === monthKey);
-            if (!scoreObj) return;
+            // Find score for selected month
+            const currentScoreObj = s.scores.find(sc => sc.month === monthKey);
 
-            const MATH = scoreObj.math ?? 0;
-            const LIT = scoreObj.lit ?? 0;
-            const ENG = scoreObj.eng ?? 0;
-            const avg = (MATH + LIT + ENG) / 3;
-            const reasons: string[] = [];
-            let level: RiskLevel | null = null;
+            // Check Academic Risk
+            if (currentScoreObj) {
+                const scores = [currentScoreObj.math, currentScoreObj.lit, currentScoreObj.eng].filter(s => typeof s === "number" && s !== null) as number[];
+                const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
 
-            // Rule 1: Danger - Avg < 4.0
-            if (avg < 4.0 && avg > 0) {
-                level = "DANGER";
-                reasons.push(`TB < 4.0 (${avg.toFixed(1)})`);
-            }
-            // Rule 2: Warning - Avg 4.0-5.0 OR Score Drop > 1.5
-            else if (avg >= 4.0 && avg < 5.0) {
-                level = level || "WARNING";
-                reasons.push(`TB thấp (${avg.toFixed(1)})`);
-            }
+                // Rule 1: Low Avg
+                if (avg < 5.0 && avg > 0) {
+                    risks.push({ student: s, reason: `Điểm TB thấp (${avg.toFixed(1)})`, type: "ACADEMIC" });
+                }
 
-            // Rule 3: Score Drop
-            const idx = s.scores.findIndex(sc => sc.month === monthKey);
-            if (idx > 0) {
-                const prev = s.scores[idx - 1];
-                const prevAvg = ((prev.math ?? 0) + (prev.lit ?? 0) + (prev.eng ?? 0)) / 3;
-                if (prevAvg - avg > 1.5) {
-                    level = level || "WARNING";
-                    reasons.push(`Tụt điểm (-${(prevAvg - avg).toFixed(1)})`);
+                // Rule 2: Score Drop (Access previous month)
+                const idx = s.scores.findIndex(sc => sc.month === monthKey);
+                if (idx > 0) {
+                    const prevScoreObj = s.scores[idx - 1];
+                    const pScores = [prevScoreObj.math, prevScoreObj.lit, prevScoreObj.eng].filter(s => typeof s === "number" && s !== null) as number[];
+                    const prevAvg = pScores.length ? pScores.reduce((a, b) => a + b, 0) / pScores.length : 0;
+                    if (prevAvg - avg > 1.5) {
+                        risks.push({ student: s, reason: `Tụt điểm nhanh (-${(prevAvg - avg).toFixed(1)})`, type: "ACADEMIC" });
+                    }
                 }
             }
 
-            // Rule 4: Notice - Any single subject < 5.0
-            if ((MATH > 0 && MATH < 5.0) || (LIT > 0 && LIT < 5.0) || (ENG > 0 && ENG < 5.0)) {
-                if (!level) level = "NOTICE";
-                const weak: string[] = [];
-                if (MATH > 0 && MATH < 5.0) weak.push(`Toán: ${MATH}`);
-                if (LIT > 0 && LIT < 5.0) weak.push(`Văn: ${LIT}`);
-                if (ENG > 0 && ENG < 5.0) weak.push(`Anh: ${ENG}`);
-                if (weak.length) reasons.push(weak.join(", "));
-            }
-
-            if (level && reasons.length) {
-                risks.push({ student: s, avgScore: avg, level, reasons });
+            // Check Engagement Risk
+            const ticksCount = countTicksForMonth(s, monthKey);
+            if (ticksCount < 5) {
+                risks.push({ student: s, reason: "Rất ít hoạt động (Ticks < 5)", type: "ENGAGEMENT" });
             }
         });
+        return risks;
+    }, [students, selectedMonth]);
 
-        const order: Record<RiskLevel, number> = { DANGER: 0, WARNING: 1, NOTICE: 2 };
-        return risks.sort((a, b) => order[a.level] - order[b.level] || a.avgScore - b.avgScore);
+    // =====================================================
+    // Habit Matrix Data (Scatter Plot)
+    // =====================================================
+    const scatterData = useMemo(() => {
+        return students.map(s => {
+            const ticksCount = countTicksForMonth(s, selectedMonth);
+
+            const scoreObj = s.scores.find(sc => sc.month === selectedMonth);
+            let avg = 0;
+            if (scoreObj) {
+                const scores = [scoreObj.math, scoreObj.lit, scoreObj.eng].filter(s => typeof s === "number" && s !== null) as number[];
+                avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+            }
+
+            if (avg === 0 && ticksCount === 0) return null; // Skip empty data
+            return { x: ticksCount, y: parseFloat(avg.toFixed(1)), name: s.name, class: s.class, mhs: s.mhs };
+        }).filter(Boolean);
     }, [students, selectedMonth]);
 
     // =====================================================
@@ -171,48 +220,85 @@ export default function TeacherAnalyticsSection({ students, teacherClass }: Teac
                 </select>
             </div>
 
-            {/* Section 1: Pure Academic Risk */}
-            <div className="bg-white/80 backdrop-blur-xl p-6 rounded-2xl border-2 border-red-200 shadow-lg">
-                <div className="flex items-center gap-2 mb-4">
-                    <AlertCircle className="text-red-600" size={24} />
-                    <h3 className="text-lg font-bold text-red-800">🚨 Cảnh báo Học lực (Tháng {selectedMonth})</h3>
+            {/* ==== Section 1: Combined Early Warning & Habit Matrix ==== */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                {/* Early Warning System (Combined) */}
+                <div className="bg-white/80 backdrop-blur-xl p-6 rounded-2xl border-2 border-orange-200 shadow-lg">
+                    <div className="flex items-center gap-2 mb-4">
+                        <AlertCircle className="text-orange-600" size={24} />
+                        <h3 className="text-lg font-bold text-orange-800">🚨 Cảnh báo sớm Tổng hợp (Tháng {selectedMonth})</h3>
+                    </div>
+                    <div className="overflow-y-auto max-h-[350px]">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-orange-50 text-orange-900 sticky top-0">
+                                <tr>
+                                    <th className="p-3 rounded-tl-lg">Học sinh</th>
+                                    <th className="p-3">Lớp</th>
+                                    <th className="p-3 rounded-tr-lg">Vấn đề</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {riskData.length === 0 ? (
+                                    <tr><td colSpan={3} className="p-4 text-center text-slate-500">✅ Không có học sinh nào trong mức cảnh báo. Tốt!</td></tr>
+                                ) : (
+                                    riskData.map((r, idx) => (
+                                        <tr key={idx} className="hover:bg-slate-50">
+                                            <td className="p-3 font-medium">{r.student.name}</td>
+                                            <td className="p-3 text-slate-500">{r.student.class}</td>
+                                            <td className="p-3">
+                                                <span className={`px-2 py-1 rounded text-xs font-bold ${r.type === "ACADEMIC" ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700"}`}>
+                                                    {r.reason}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-                <div className="overflow-y-auto max-h-[300px]">
-                    <table className="w-full text-left text-sm">
-                        <thead className="bg-red-50 text-red-900 sticky top-0">
-                            <tr>
-                                <th className="p-3 rounded-tl-lg">Học sinh</th>
-                                <th className="p-3">Điểm TB</th>
-                                <th className="p-3">Mức độ</th>
-                                <th className="p-3 rounded-tr-lg">Lý do</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {pureAcademicRisk.length === 0 ? (
-                                <tr><td colSpan={4} className="p-4 text-center text-slate-500">✅ Không có học sinh nào trong mức cảnh báo.</td></tr>
-                            ) : (
-                                pureAcademicRisk.map((r, idx) => (
-                                    <tr key={idx} className="hover:bg-slate-50">
-                                        <td className="p-3 font-medium">{r.student.name}</td>
-                                        <td className="p-3 font-bold">{r.avgScore.toFixed(1)}</td>
-                                        <td className="p-3">
-                                            <span className={`px-2 py-1 rounded text-xs font-bold ${r.level === "DANGER" ? "bg-red-600 text-white" :
-                                                r.level === "WARNING" ? "bg-orange-500 text-white" :
-                                                    "bg-yellow-400 text-slate-800"
-                                                }`}>
-                                                {r.level === "DANGER" ? "🔴 Nguy hiểm" : r.level === "WARNING" ? "🟠 Theo dõi" : "🟡 Chú ý"}
-                                            </span>
-                                        </td>
-                                        <td className="p-3 text-xs text-slate-600">{r.reasons.join(" · ")}</td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
+
+                {/* Habit Impact Matrix */}
+                <div className="bg-white/80 backdrop-blur-xl p-6 rounded-2xl border border-slate-200 shadow-lg">
+                    <h3 className="text-lg font-bold text-slate-700 mb-4">Ma trận Tương quan: Thói quen vs Điểm số</h3>
+                    <div className="h-[350px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis type="number" dataKey="x" name="Tasks Completed" unit=" ticks" label={{ value: 'Số Tick (Chăm chỉ)', position: 'insideBottom', offset: -10 }} />
+                                <YAxis type="number" dataKey="y" name="Avg Score" unit=" đ" label={{ value: 'Điểm TB', angle: -90, position: 'insideLeft' }} domain={[0, 10]} />
+                                <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
+                                    if (active && payload && payload.length) {
+                                        const d = payload[0].payload;
+                                        return (
+                                            <div className="bg-white p-2 border border-slate-200 shadow-lg rounded text-xs">
+                                                <strong>{d.name} ({d.class})</strong>
+                                                <div>Tick: {d.x} | Điểm: {d.y}</div>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                }} />
+                                <ReferenceLine x={20} stroke="#94a3b8" strokeDasharray="3 3" />
+                                <ReferenceLine y={6.5} stroke="#94a3b8" strokeDasharray="3 3" />
+                                <Scatter name="Students" data={scatterData} fill="#8884d8">
+                                    {scatterData.map((entry, index) => {
+                                        const e = entry as any;
+                                        let fill = "#94a3b8";
+                                        if (e.x > 20 && e.y >= 7) fill = "#10b981";
+                                        if (e.x < 10 && e.y < 5) fill = "#ef4444";
+                                        if (e.x > 20 && e.y < 6) fill = "#f59e0b";
+                                        if (e.x < 10 && e.y >= 7) fill = "#8b5cf6";
+                                        return <Cell key={`cell-${index}`} fill={fill} />;
+                                    })}
+                                </Scatter>
+                            </ScatterChart>
+                        </ResponsiveContainer>
+                    </div>
                 </div>
             </div>
 
-            {/* Section 2: Subject Averages + Top Improvers */}
+            {/* ==== Section 2: Subject Averages + Top Improvers ==== */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Subject Averages */}
                 <div className="bg-white/80 backdrop-blur-xl p-6 rounded-2xl border border-slate-200 shadow-lg">
