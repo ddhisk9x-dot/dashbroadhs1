@@ -84,7 +84,7 @@ export default function Leaderboard({ leaderboardClass, leaderboardGrade, curren
                                 </div>
                                 <div className="text-right">
                                     <div className="text-sm font-bold text-slate-800">{item.score}</div>
-                                    <div className="text-[10px] text-slate-400 uppercase">Ticks</div>
+                                    <div className="text-[10px] text-slate-400 uppercase">Nhiệm vụ</div>
                                 </div>
                             </div>
                         );

@@ -225,7 +225,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                     </div>
                     <div>
                       <div className="text-lg font-bold text-slate-800">Toán học</div>
-                      <div className="text-xs text-slate-500 font-medium tracking-wide">MATH PROGRESS</div>
+                      <div className="text-xs text-slate-500 font-medium tracking-wide">TIẾN ĐỘ</div>
                     </div>
                   </div>
                   <ScoreChart data={chartData} stats={student.dashboardStats} subject="math" />
@@ -238,7 +238,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                     </div>
                     <div>
                       <div className="text-lg font-bold text-slate-800">Ngữ Văn</div>
-                      <div className="text-xs text-slate-500 font-medium tracking-wide">LITERATURE</div>
+                      <div className="text-xs text-slate-500 font-medium tracking-wide">VĂN HỌC</div>
                     </div>
                   </div>
                   <ScoreChart data={chartData} stats={student.dashboardStats} subject="lit" />
@@ -251,7 +251,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                     </div>
                     <div>
                       <div className="text-lg font-bold text-slate-800">Tiếng Anh</div>
-                      <div className="text-xs text-slate-500 font-medium tracking-wide">ENGLISH</div>
+                      <div className="text-xs text-slate-500 font-medium tracking-wide">NGOẠI NGỮ</div>
                     </div>
                   </div>
                   <div className="h-[250px] w-full">
@@ -339,7 +339,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                     "{ai?.messageToStudent || "Mỗi ngày tiến bộ 1 chút là đủ."}"
                   </div>
                   <div className="mt-8 pt-4 border-t border-white/20 flex items-center gap-2">
-                    <span className="text-[10px] uppercase font-bold tracking-wider opacity-60">Insight by Gemini</span>
+                    <span className="text-[10px] uppercase font-bold tracking-wider opacity-60">Phân tích bởi Gemini</span>
                   </div>
                 </div>
               </div>
@@ -397,8 +397,8 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                       <Target size={20} />
                     </div>
                     <div>
-                      <div className="font-bold text-slate-800">Mục tiêu Tiếp theo</div>
-                      <div className="text-xs text-slate-500">Next Exam Targets</div>
+                      <div className="font-bold text-slate-800">Mục tiêu Bài thi tới</div>
+                      <div className="text-xs text-slate-500">Điểm số cần đạt</div>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
