@@ -218,21 +218,21 @@ function fallbackReport(student: any, taskMonth: string) {
   const actions: ActionItem[] =
     band === "VERY_LOW" || band === "LOW"
       ? [
-          {
-            description: `(${taskMonth}) Mỗi ngày 15 phút củng cố nền tảng ${weak}: làm lại 10 bài cơ bản trong TÀI LIỆU NỘI BỘ + ghi 3 lỗi sai vào sổ`,
-            frequency: "Hàng ngày",
-          },
-          {
-            description: `(${taskMonth}) 3 buổi/tuần: chọn 1 chủ điểm ${weak} đang yếu trong TÀI LIỆU NỘI BỘ, làm 15–20 bài và tự chấm`,
-            frequency: "3 lần/tuần",
-          },
-          {
-            description: `(${taskMonth}) Mỗi ngày: làm lại tối đa 8 câu/bài đã sai trước đó (từ vở/bài cũ) và viết 1 dòng “vì sao sai – cách đúng”`,
-            frequency: "Hàng ngày",
-          },
-        ]
+        {
+          description: `(${taskMonth}) Mỗi ngày 15 phút củng cố nền tảng ${weak}: làm lại 10 bài cơ bản trong TÀI LIỆU NỘI BỘ + ghi 3 lỗi sai vào sổ`,
+          frequency: "Hàng ngày",
+        },
+        {
+          description: `(${taskMonth}) 3 buổi/tuần: chọn 1 chủ điểm ${weak} đang yếu trong TÀI LIỆU NỘI BỘ, làm 15–20 bài và tự chấm`,
+          frequency: "3 lần/tuần",
+        },
+        {
+          description: `(${taskMonth}) Mỗi ngày: làm lại tối đa 8 câu/bài đã sai trước đó (từ vở/bài cũ) và viết 1 dòng “vì sao sai – cách đúng”`,
+          frequency: "Hàng ngày",
+        },
+      ]
       : band === "MID"
-      ? [
+        ? [
           {
             description: `(${taskMonth}) 3 buổi/tuần: luyện 1–2 chủ điểm ${weak} trong TÀI LIỆU NỘI BỘ (20–25 phút), ưu tiên phần hay sai`,
             frequency: "3 lần/tuần",
@@ -246,7 +246,7 @@ function fallbackReport(student: any, taskMonth: string) {
             frequency: "1 lần/tuần",
           },
         ]
-      : [
+        : [
           {
             description: `(${taskMonth}) 2 buổi/tuần: làm bài tổng hợp trong TÀI LIỆU NỘI BỘ (20–25 phút), mục tiêu tăng tốc độ & chính xác`,
             frequency: "2 lần/tuần",
@@ -310,9 +310,9 @@ export async function POST(req: Request) {
   const prevMonthActions: Array<{ description?: string; frequency?: string }> =
     stBefore?.actionsByMonth?.[prevTaskMonth] && Array.isArray(stBefore.actionsByMonth[prevTaskMonth])
       ? stBefore.actionsByMonth[prevTaskMonth].map((a: any) => ({
-          description: a?.description,
-          frequency: a?.frequency,
-        }))
+        description: a?.description,
+        frequency: a?.frequency,
+      }))
       : [];
 
   const insights = buildInsights(student);
@@ -327,6 +327,7 @@ export async function POST(req: Request) {
       const prompt = [
         "Bạn là giáo viên chủ nhiệm. Hãy phân tích học sinh dựa trên điểm số theo tháng (3 môn: Toán, Ngữ văn, Tiếng Anh).",
         `THANG ĐIỂM TỐI ĐA: ${SCALE_MAX}. Điểm có thể là số thập phân.`,
+        "LƯU Ý QUAN TRỌNG: Điểm = null nghĩa là học sinh KHÔNG THI hoặc MIỄN THI. Không được coi là 0 điểm, không được nhận xét là học yếu môn đó. Chỉ phân tích các môn có điểm số.",
         "",
         `THÁNG ĐIỂM MỚI NHẤT: ${latestScoreMonth}.`,
         `THÁNG NHIỆM VỤ CẦN GIAO: ${taskMonth} (luôn là tháng sau của tháng điểm mới nhất).`,

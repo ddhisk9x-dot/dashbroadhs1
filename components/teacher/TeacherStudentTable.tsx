@@ -193,7 +193,10 @@ export default function TeacherStudentTable({
 
                                         <td className="px-6 py-5 text-sm text-slate-600">
                                             {avg !== "N/A" ? (
-                                                <div className="flex items-center gap-2">
+                                                <div
+                                                    className="flex items-center gap-2 cursor-help"
+                                                    title={`Toán: ${lastScore?.math ?? "-"} | Văn: ${lastScore?.lit ?? "-"} | Anh: ${lastScore?.eng ?? "-"}`}
+                                                >
                                                     <span
                                                         className={`w-8 h-8 flex items-center justify-center rounded-lg font-bold text-xs shadow-sm bg-gradient-to-br ${Number(avg) >= 8
                                                             ? "from-emerald-400 to-emerald-600 text-white"
