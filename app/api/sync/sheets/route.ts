@@ -5,228 +5,416 @@ import { getSession } from "@/lib/session";
 
 export const runtime = "nodejs";
 
+// CSV parser đơn giản (đủ cho bảng điểm)
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let cur = "";
+  let inQuotes = false;
+  let row: string[] = [];
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (ch === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (!inQuotes && ch === ",") {
+      row.push(cur);
+      cur = "";
+      continue;
+    }
+
+    if (!inQuotes && ch === "\n") {
+      row.push(cur);
+      rows.push(row);
+      row = [];
+      cur = "";
+      continue;
+    }
+
+    if (ch !== "\r") cur += ch;
+  }
+
+  if (cur.length || row.length) {
+    row.push(cur);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function normHeader(v: any): string {
+  return String(v ?? "")
+    .replace(/\uFEFF/g, "") // BOM
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+function toNumberOrNull(v: string | undefined): number | null {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const n = parseFloat(s.replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
 type ScoreData = { month: string; math: number | null; lit: number | null; eng: number | null };
 
+// ✅ Student có thêm actionsByMonth để giữ tick theo tháng
 type Student = {
   mhs: string;
   name: string;
   class: string;
   scores: ScoreData[];
   aiReport?: any;
+
   actionsByMonth?: Record<string, any[]>;
-  activeActions?: any[];
+  activeActions?: any[]; // giữ tương thích UI cũ
 };
 
-type SyncMode = "new_only" | "months" | "overwrite";
-
-async function fetchFromAppsScript(sheetName: string): Promise<any[]> {
-  const scriptUrl = process.env.APPS_SCRIPT_URL; // URL Web App mới
-  if (!scriptUrl) throw new Error("Missing env: APPS_SCRIPT_URL");
-
-  // Call Apps Script: ?action=get_data&sheet=SHEET_NAME
-  const url = `${scriptUrl}?action=get_data&sheet=${sheetName}`;
-  const res = await fetch(url, { cache: "no-store", redirect: "follow" });
-
-  if (!res.ok) throw new Error(`Apps Script fetch failed: ${res.status}`);
-
-  const json = await res.json();
-  if (json.error) throw new Error(`Apps Script error: ${json.error}`);
-
-  return json.data || [];
+function looksLikeHtml(text: string): boolean {
+  const s = text.slice(0, 400).toLowerCase();
+  return s.includes("<!doctype html") || s.includes("<html") || s.includes("google sheets");
 }
 
-function normalizeRows(rows: any[][]): Student[] {
-  if (rows.length < 3) return [];
+type SyncMode = "new_only" | "months";
+type SyncOpts = { mode?: SyncMode; selectedMonths?: string[] };
 
-  const rawMonthRow = rows[0] || [];
-  const headerRow = rows[1] || [];
+function isMonthKey(x: string) {
+  return /^\d{4}-\d{2}$/.test(String(x || "").trim());
+}
 
-  const norm = (v: any) => String(v ?? "").trim().toUpperCase();
-  const headerNorm = headerRow.map(norm);
+function isoMonthNow() {
+  return new Date().toISOString().slice(0, 7);
+}
 
-  // --- REPAIR: Forward fill month Row (Handle merged cells) ---
-  const monthRow: string[] = [];
-  let currentMonth = "";
-  for (let i = 0; i < rawMonthRow.length; i++) {
-    const v = String(rawMonthRow[i] || "").trim().replace(".", "-");
-    // Flexible month regex: YYYY-MM or YYYY.MM
-    if (/^\d{4}[-.]\d{2}$/.test(v)) {
-      currentMonth = v.replace(".", "-");
+function nextMonthKey(monthKey: string): string {
+  const mk = String(monthKey || "").trim();
+  if (!isMonthKey(mk)) return isoMonthNow();
+  const [yStr, mStr] = mk.split("-");
+  let y = parseInt(yStr, 10);
+  let m = parseInt(mStr, 10);
+  m += 1;
+  if (m === 13) {
+    m = 1;
+    y += 1;
+  }
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}`;
+}
+
+function getLatestScoreMonth(scores: ScoreData[] | undefined): string {
+  const arr = Array.isArray(scores) ? scores : [];
+  const last = arr[arr.length - 1];
+  const mk = String(last?.month || "").trim();
+  return isMonthKey(mk) ? mk : isoMonthNow();
+}
+
+function getTaskMonthFromScores(scores: ScoreData[] | undefined): string {
+  // điểm tháng N -> nhiệm vụ tháng N+1
+  return nextMonthKey(getLatestScoreMonth(scores));
+}
+
+// ✅ migrate dữ liệu cũ:
+// - nếu chỉ có activeActions -> đưa vào actionsByMonth theo "tháng nhiệm vụ hiện hành" (N+1)
+// - activeActions sẽ trỏ vào tháng nhiệm vụ nếu có, để UI cũ vẫn chạy
+function normalizeActionsStorage(st: Student): Student {
+  const s: Student = { ...st };
+  s.actionsByMonth = s.actionsByMonth && typeof s.actionsByMonth === "object" ? s.actionsByMonth : {};
+
+  const aa = Array.isArray(s.activeActions) ? s.activeActions : [];
+  const taskMonth = getTaskMonthFromScores(s.scores);
+
+  // migrate legacy -> actionsByMonth[taskMonth] nếu chưa có dữ liệu tháng đó
+  if (aa.length) {
+    if (!Array.isArray(s.actionsByMonth![taskMonth]) || s.actionsByMonth![taskMonth]!.length === 0) {
+      s.actionsByMonth![taskMonth] = aa;
     }
-    monthRow[i] = currentMonth;
   }
 
-  // Identify available months from processed monthRow
-  const monthKeysAll = Array.from(new Set(monthRow.filter(m => m !== ""))).sort();
+  // ưu tiên activeActions = nhiệm vụ tháng hiện hành (taskMonth)
+  if (Array.isArray(s.actionsByMonth![taskMonth]) && s.actionsByMonth![taskMonth]!.length > 0) {
+    s.activeActions = s.actionsByMonth![taskMonth];
+  } else {
+    // fallback: nếu có tháng nào trong actionsByMonth thì lấy tháng lớn nhất
+    const keys = Object.keys(s.actionsByMonth || {}).filter((k) => isMonthKey(k)).sort();
+    const latestTask = keys[keys.length - 1];
+    if (latestTask && Array.isArray(s.actionsByMonth![latestTask])) s.activeActions = s.actionsByMonth![latestTask];
+    else s.activeActions = aa;
+  }
 
-  const getCol = (mk: string, subjNorm: string) => {
+  return s;
+}
+
+async function doSyncFromSheet(opts?: SyncOpts) {
+  const mode: SyncMode = opts?.mode ?? "new_only";
+  const selectedMonths: string[] = Array.isArray(opts?.selectedMonths) ? opts!.selectedMonths! : [];
+
+  const sheetUrl = process.env.SHEET_CSV_URL;
+  if (!sheetUrl) throw new Error("Missing env: SHEET_CSV_URL");
+
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) throw new Error("Missing Supabase env");
+
+  // 1) Fetch CSV
+  const resp = await fetch(sheetUrl, {
+    cache: "no-store",
+    redirect: "follow",
+    headers: { Accept: "text/csv,text/plain;q=0.9,*/*;q=0.8" },
+  });
+
+  if (!resp.ok) throw new Error(`Fetch CSV failed: ${resp.status}`);
+
+  const contentType = resp.headers.get("content-type") || "";
+  const text = await resp.text();
+
+  // Nếu URL đang trỏ vào trang HTML chứ không phải CSV export
+  if (looksLikeHtml(text) || contentType.includes("text/html")) {
+    const preview = text.slice(0, 200).replace(/\s+/g, " ");
+    throw new Error(
+      `SHEET_CSV_URL is not a CSV export link (got HTML). ` +
+      `Use: https://docs.google.com/spreadsheets/d/<ID>/export?format=csv&gid=<GID>. ` +
+      `Preview: ${preview}`
+    );
+  }
+
+  const rows = parseCSV(text);
+
+  // 2) Validate
+  if (rows.length < 3) throw new Error("CSV must have 2 header rows + data rows");
+
+  const monthRow = rows[0] ?? []; // Row 1: month_key
+  const headerRow = rows[1] ?? []; // Row 2: column names
+  const header2 = headerRow.map(normHeader);
+
+  const idxMhs = header2.indexOf("MHS");
+  const idxName = header2.indexOf("HỌ VÀ TÊN");
+  const idxClass = header2.indexOf("LỚP");
+
+  if (idxMhs < 0) {
+    const hPreview = headerRow.slice(0, 30).map((x) => String(x ?? "")).join(" | ");
+    throw new Error(`Missing column: MHS (header row 2). Header preview: ${hPreview}`);
+  }
+  if (idxName < 0) throw new Error("Missing column: HỌ VÀ TÊN");
+  if (idxClass < 0) throw new Error("Missing column: LỚP");
+
+  // Lấy month keys đúng định dạng yyyy-mm
+  const monthKeysAll = Array.from(
+    new Set(monthRow.map((x) => String(x ?? "").trim()).filter((x) => isMonthKey(x)))
+  );
+
+  if (monthKeysAll.length === 0) {
+    throw new Error('No month_key detected on row 1. Expected values like "2025-08".');
+  }
+
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  // 0) Load dữ liệu cũ trước để biết tháng đã có + giữ aiReport/actions/ticks
+  const { data: oldState, error: oldErr } = await supabase
+    .from("app_state")
+    .select("students_json")
+    .eq("id", "main")
+    .maybeSingle();
+
+  if (oldErr) throw new Error(oldErr.message);
+
+  const oldStudentsRaw: Student[] = (oldState?.students_json?.students as Student[]) ?? [];
+  const oldStudents: Student[] = oldStudentsRaw.map(normalizeActionsStorage);
+
+  const oldMap = new Map<string, Student>();
+  oldStudents.forEach((s) => oldMap.set(String(s.mhs).trim(), s));
+
+  const oldMonths = new Set<string>();
+  for (const s of oldStudents) {
+    for (const sc of s.scores ?? []) oldMonths.add(sc.month);
+  }
+
+  const newMonthsDetected = monthKeysAll.filter((m) => !oldMonths.has(m));
+
+  // Quyết định months sẽ sync dựa trên mode
+  let monthKeysToSync: string[] = monthKeysAll;
+
+  if (mode === "new_only") {
+    monthKeysToSync = monthKeysAll.filter((m) => !oldMonths.has(m));
+
+    // ✅ NEW: nếu có HS mới mà không có "tháng mới" -> sync tất cả tháng để HS mới có điểm
+    let hasNewStudents = false;
+    for (let r = 2; r < rows.length; r++) {
+      const row = rows[r] ?? [];
+      const mhs = String(row[idxMhs] ?? "").trim();
+      if (!mhs) continue;
+      if (!oldMap.has(mhs)) {
+        hasNewStudents = true;
+        break;
+      }
+    }
+
+    if (monthKeysToSync.length === 0 && hasNewStudents) {
+      monthKeysToSync = monthKeysAll;
+    }
+  } else if (mode === "months") {
+    if (selectedMonths.length > 0) {
+      const selSet = new Set(selectedMonths);
+      monthKeysToSync = monthKeysAll.filter((m) => selSet.has(m));
+    }
+  }
+
+  const getCol = (monthKey: string, subjectUpper: string) => {
+    const subj = normHeader(subjectUpper);
     for (let i = 0; i < monthRow.length; i++) {
-      // Fuzzy match subject: "TOÁN" matches "Môn Toán", "Toán 9"...
-      if (monthRow[i] === mk && (headerNorm[i] === subjNorm || headerNorm[i].includes(subjNorm))) return i;
+      const mk = String(monthRow[i] ?? "").trim();
+      if (mk !== monthKey) continue;
+      if (header2[i] === subj) return i;
     }
     return -1;
   };
 
-  const idxMhs = findIdx(["MHS", "MA HS", "MSHS", "MÃ HS"], headerNorm);
-  const idxName = findIdx(["HỌ VÀ TÊN", "HO VA TEN", "NAME", "QUY DANH"], headerNorm);
-  const idxClass = findIdx(["LỚP", "LOP", "CLASS"], headerNorm);
+  // 3) Build students from sheet for chosen months
+  const studentMap = new Map<string, Student>();
 
-  if (idxMhs < 0) return [];
-
-  const students: Student[] = [];
-
-  for (let i = 2; i < rows.length; i++) {
-    const row = rows[i];
-    const mhs = String(row[idxMhs] || "").trim();
+  for (let r = 2; r < rows.length; r++) {
+    const row = rows[r] ?? [];
+    const mhs = String(row[idxMhs] ?? "").trim();
     if (!mhs) continue;
 
-    const name = idxName >= 0 ? String(row[idxName] || "Unknown").trim() : "Unknown";
-    const className = idxClass >= 0 ? String(row[idxClass] || "").trim() : "";
+    const name = String(row[idxName] ?? "").trim() || "Unknown";
+    const className = String(row[idxClass] ?? "").trim() || "";
 
-    const student: Student = {
-      mhs, name, class: className,
-      scores: [],
-      activeActions: [],
-      actionsByMonth: {}
-    };
+    let st = studentMap.get(mhs);
+    if (!st) {
+      st = { mhs, name, class: className, scores: [], activeActions: [], actionsByMonth: {} };
+      studentMap.set(mhs, st);
+    } else {
+      st.name = name;
+      st.class = className;
+    }
 
-    monthKeysAll.forEach(mk => {
+    for (const mk of monthKeysToSync) {
       const cMath = getCol(mk, "TOÁN");
       const cLit = getCol(mk, "NGỮ VĂN");
       const cEng = getCol(mk, "TIẾNG ANH");
 
-      const parseVal = (idx: number) => {
-        if (idx < 0) return null;
-        const v = String(row[idx] || "").replace(",", ".");
-        const n = parseFloat(v);
-        // Scores are up to 15 as per user's latest instruction
-        return (Number.isFinite(n) && n >= 0 && n <= 15) ? n : null;
-      };
+      if (cMath < 0 && cLit < 0 && cEng < 0) continue;
 
-      const math = parseVal(cMath);
-      const lit = parseVal(cLit);
-      const eng = parseVal(cEng);
+      const math = cMath >= 0 ? toNumberOrNull(row[cMath]) : null;
+      const lit = cLit >= 0 ? toNumberOrNull(row[cLit]) : null;
+      const eng = cEng >= 0 ? toNumberOrNull(row[cEng]) : null;
 
-      if (math !== null || lit !== null || eng !== null) {
-        student.scores.push({ month: mk, math, lit, eng });
-      }
-    });
+      if (math === null && lit === null && eng === null) continue;
 
-    student.scores.sort((a, b) => a.month.localeCompare(b.month));
-    students.push(student);
+      const entry: ScoreData = { month: mk, math, lit, eng };
+      const exist = (st.scores || []).findIndex((s) => s.month === mk);
+      if (exist >= 0) st.scores[exist] = entry;
+      else st.scores.push(entry);
+    }
   }
 
-  return students;
+  const newStudents = Array.from(studentMap.values()).map(normalizeActionsStorage);
+
+  // 4) Merge: cập nhật scores/name/class từ sheet, giữ aiReport + actionsByMonth
+  const mergedStudents: Student[] = newStudents.map((ns) => {
+    const old = oldMap.get(String(ns.mhs).trim());
+
+    // merge scores: chỉ replace monthsToSync, giữ các tháng khác
+    let scoresMerged: ScoreData[] = ns.scores ?? [];
+    if (old?.scores?.length) {
+      const replaceMonths = new Set(monthKeysToSync);
+      const keepOldScores = old.scores.filter((sc) => !replaceMonths.has(sc.month));
+      scoresMerged = [...keepOldScores, ...(ns.scores ?? [])].sort((a, b) => a.month.localeCompare(b.month));
+    }
+
+    const oldABM = old?.actionsByMonth && typeof old.actionsByMonth === "object" ? old.actionsByMonth : {};
+    const nsABM = ns.actionsByMonth && typeof ns.actionsByMonth === "object" ? ns.actionsByMonth : {};
+    const mergedABM: Record<string, any[]> = { ...oldABM, ...nsABM };
+
+    const merged: Student = {
+      ...ns,
+      scores: scoresMerged,
+      aiReport: old?.aiReport ?? ns.aiReport,
+      actionsByMonth: mergedABM,
+    };
+
+    // activeActions ưu tiên theo "tháng nhiệm vụ" hiện hành
+    const taskMonth = getTaskMonthFromScores(merged.scores);
+    if (Array.isArray(merged.actionsByMonth?.[taskMonth])) merged.activeActions = merged.actionsByMonth![taskMonth];
+    else merged.activeActions = old?.activeActions ?? ns.activeActions ?? [];
+
+    return normalizeActionsStorage(merged);
+  });
+
+  // 5) Giữ học sinh cũ không có trong sheet mới (để không mất dữ liệu)
+  for (const [mhs, old] of oldMap.entries()) {
+    if (!mergedStudents.some((s) => s.mhs === mhs)) mergedStudents.push(old);
+  }
+
+  // 6) Save lại app_state
+  const { error } = await supabase
+    .from("app_state")
+    .upsert({ id: "main", students_json: { students: mergedStudents } }, { onConflict: "id" });
+
+  if (error) throw new Error(error.message);
+
+  return {
+    ok: true,
+    mode,
+    selectedMonths,
+    monthsAll: monthKeysAll,
+    monthsSynced: monthKeysToSync,
+    newMonthsDetected,
+    students: mergedStudents.length,
+  };
 }
 
-function findIdx(candidates: string[], headers: string[]) {
-  for (const c of candidates) {
-    const idx = headers.indexOf(c);
-    if (idx >= 0) return idx;
-  }
-  for (const c of candidates) {
-    const idx = headers.findIndex(h => h.includes(c));
-    if (idx >= 0) return idx;
-  }
-  return -1;
-}
-
+/**
+ * POST: Admin bấm nút trong app
+ */
 export async function POST(req: Request) {
+  const session = await getSession();
+  if (!session || session.role !== "ADMIN") {
+    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  }
+
+  let body: any = {};
   try {
-    const session = await getSession();
-    if (!session || session.role !== "ADMIN") {
-      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-    }
+    body = await req.json();
+  } catch { }
 
-    const body = await req.json();
-    const sheetName = body.sheetName || "DIEM_2526"; // Mặc định năm hiện tại
-    const mode = body.mode || "new_only";
+  const mode: SyncMode = body?.mode === "months" ? "months" : "new_only";
+  const selectedMonths: string[] = Array.isArray(body?.selectedMonths) ? body.selectedMonths : [];
 
-    // 1. Fetch data from Apps Script
-    const rawData = await fetchFromAppsScript(sheetName);
-    const newStudents = normalizeRows(rawData);
-
-    if (newStudents.length === 0) {
-      return NextResponse.json({ ok: false, error: "No student data found in sheet " + sheetName });
-    }
-
-    // 2. Load old state from "main"
-    const supabaseUrl = process.env.SUPABASE_URL!;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const supabase = createClient(supabaseUrl, serviceKey);
-
-    const { data: oldData } = await supabase
-      .from("app_state")
-      .select("students_json")
-      .eq("id", "main")
-      .maybeSingle();
-
-    const oldStudents = (oldData?.students_json?.students as Student[]) || [];
-    const oldMap = new Map<string, Student>();
-
-    oldStudents.forEach(s => {
-      const key = String(s.mhs || "").trim().toUpperCase();
-      const existing = oldMap.get(key);
-      if (!existing) {
-        oldMap.set(key, s);
-      } else {
-        // Prefer record with data
-        const currentHasData = !!(s.aiReport || Object.keys(s.actionsByMonth || {}).length > 0 || (s.scores && s.scores.length > 0));
-        const existingHasData = !!(existing.aiReport || Object.keys(existing.actionsByMonth || {}).length > 0 || (existing.scores && existing.scores.length > 0));
-        if (currentHasData && !existingHasData) oldMap.set(key, s);
-      }
-    });
-
-    // 3. Merge Logic (Fixing the data loss issue)
-    const mergedStudents = newStudents.map(ns => {
-      const nsKey = String(ns.mhs || "").trim().toUpperCase();
-      const old = oldMap.get(nsKey);
-
-      if (!old) return ns;
-
-      // --- REPAIR: MERGE SCORES MONTH BY MONTH ---
-      const scoresMap = new Map<string, ScoreData>();
-      // Seed with old scores
-      if (Array.isArray(old.scores)) {
-        old.scores.forEach(sc => scoresMap.set(sc.month, sc));
-      }
-      // Overwrite/Add with new scores from sheet
-      if (Array.isArray(ns.scores)) {
-        ns.scores.forEach(sc => scoresMap.set(sc.month, sc));
-      }
-      const mergedScores = Array.from(scoresMap.values()).sort((a, b) => a.month.localeCompare(b.month));
-
-      return {
-        ...ns,
-        scores: mergedScores,
-        aiReport: old.aiReport || ns.aiReport,
-        actionsByMonth: old.actionsByMonth || ns.actionsByMonth || {},
-        activeActions: old.activeActions || ns.activeActions || []
-      };
-    });
-
-    // Keep students not in the latest sheet
-    if (mode !== "overwrite") {
-      const mergedMhsSet = new Set(mergedStudents.map(s => String(s.mhs).trim().toUpperCase()));
-      for (const [key, old] of oldMap) {
-        if (!mergedMhsSet.has(key)) mergedStudents.push(old);
-      }
-    }
-
-    // 4. Save to Supabase - Always save to "main" for consistency
-    const { error } = await supabase
-      .from("app_state")
-      .upsert({
-        id: "main", // Always save to main for consistency with reads
-        students_json: { students: mergedStudents, lastSync: new Date().toISOString() }
-      });
-
-    if (error) throw new Error(error.message);
-
-    return NextResponse.json({ ok: true, sheetName, savedTo: "main", students: mergedStudents.length });
-
+  try {
+    const result = await doSyncFromSheet({ mode, selectedMonths });
+    return NextResponse.json(result);
   } catch (e: any) {
-    console.error(e);
-    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
+  }
+}
+
+/**
+ * GET: dùng cho Cron (server-only secret)
+ * gọi: /api/sync/sheets?secret=...
+ */
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const secret = url.searchParams.get("secret");
+
+  if (!process.env.SYNC_SECRET || secret !== process.env.SYNC_SECRET) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const result = await doSyncFromSheet({ mode: "new_only", selectedMonths: [] });
+    const { ok: _ok, ...rest } = result as any;
+    return NextResponse.json({ ok: true, mode: "cron", ...rest });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
   }
 }
