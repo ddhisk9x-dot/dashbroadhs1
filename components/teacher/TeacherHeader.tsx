@@ -16,6 +16,7 @@ interface TeacherHeaderProps {
     visibleStudents: Student[];
     onLogout: () => void;
     onBulkGenerate: () => void;
+    onSyncSheet: () => void;
     onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onAddStudent?: () => void;
     isSyncing: boolean;
