@@ -13,8 +13,8 @@ export const supabase = createClient(
 
 export type AppState = { students: any[] };
 
-export async function getAppState(sheetName: string = "DIEM_2526"): Promise<AppState> {
-  // Query the requested sheet first (default: DIEM_2526 where sync saves data)
+export async function getAppState(sheetName: string = "main"): Promise<AppState> {
+  // Query the requested sheet (default: main where good data exists)
   let { data, error } = await supabase
     .from("app_state")
     .select("students_json")
