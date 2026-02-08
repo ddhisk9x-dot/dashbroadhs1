@@ -39,11 +39,31 @@ function normalizeRows(rows: any[]): Student[] {
   return rows.map(r => {
     // Map từ field tiếng Việt (Apps Script trả về theo header sheet) sang field Student
 
-    const mhs = String(r["MHS"] || "").trim();
+    // Helper to find key fuzzily
+    const findKey = (candidates: string[]) => {
+      const keys = Object.keys(r);
+      for (const c of candidates) {
+        // Strict match first
+        const found = keys.find(k => k.trim().toUpperCase() === c);
+        if (found) return found;
+      }
+      for (const c of candidates) {
+        // Loose match
+        const found = keys.find(k => k.toUpperCase().includes(c));
+        if (found) return found;
+      }
+      return null;
+    };
+
+    const keyMhs = findKey(["MHS", "MA HS", "MSHS", "MÃ HS"]);
+    const keyName = findKey(["HỌ VÀ TÊN", "HO VA TEN", "NAME", "QUY DANH"]);
+    const keyClass = findKey(["LỚP", "LOP", "CLASS"]);
+
+    const mhs = keyMhs ? String(r[keyMhs] || "").trim() : "";
     if (!mhs) return null;
 
-    const name = String(r["HỌ VÀ TÊN"] || "Unknown").trim();
-    const className = String(r["LỚP"] || "").trim();
+    const name = keyName ? String(r[keyName] || "Unknown").trim() : "Unknown";
+    const className = keyClass ? String(r[keyClass] || "").trim() : "";
 
     const student: Student = {
       mhs, name, class: className,
