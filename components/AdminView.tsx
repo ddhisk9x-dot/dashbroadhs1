@@ -187,38 +187,40 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
     const visibleStudents = useMemo(() => students, [students]); // All students visible to admin
 
     const uniqueClasses = useMemo(() => {
-        const classes = new Set(visibleStudents.map((s) => s.class || "").filter(Boolean));
+        const classes = new Set(visibleStudents.map((s) => (s.class || "").trim().toUpperCase()).filter(Boolean));
         return Array.from(classes).sort();
     }, [visibleStudents]);
 
     const filteredStudents = useMemo(() => {
         // 1. Normalize Search Term
-        const rawQ = searchTerm.trim().toLowerCase();
-        // Remove accents for better search
-        const q = rawQ.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const rawQ = searchTerm.trim().toUpperCase();
+        // Remove accents for searching name, but keep original for class check
+        const qNorm = rawQ.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
         // 2. Filter list
         let list = visibleStudents.filter((s) => {
-            // A. Class Filter (Dropdown)
             const sClassNorm = (s.class || "").trim().toUpperCase();
+
+            // A. Dropdown Filter
             const fClassNorm = filterClass.trim().toUpperCase();
             if (fClassNorm !== "ALL" && sClassNorm !== fClassNorm) return false;
 
-            // B. Search Filter (Search Box)
-            if (q) {
-                // Precision Fix: If search query looks like a class (e.g., "8A0", "8A", "9A1"), do strict match on class
-                const isClassPattern = /^\d+[A-Z]\d*$/.test(q.toUpperCase());
-                if (isClassPattern) {
-                    if (sClassNorm !== q.toUpperCase()) return false;
-                    return true;
+            // B. Search Box Filter
+            if (rawQ) {
+                // PRECISION FIX: If the search query is EXACTLY one of the class names, restrict to THAT class
+                if (uniqueClasses.includes(rawQ)) {
+                    if (sClassNorm !== rawQ) return false;
+                    return true; // If it's the class, we show it
                 }
 
-                // Normal fuzzy search for other strings (Names, MHS)
+                // If it's a partial class match (like "8A"), and NOT a valid MHS/Name yet, we prioritize class
+                // But for safety, we allow it to be fuzzy if not an exact class
                 const sName = (s.name || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
                 const sMhs = (s.mhs || "").toLowerCase();
                 const sClassRaw = (s.class || "").toLowerCase();
+                const searchLow = rawQ.toLowerCase();
 
-                return sName.includes(q) || sMhs.includes(q) || sClassRaw.includes(q);
+                return sName.includes(qNorm.toLowerCase()) || sMhs.includes(searchLow) || sClassRaw.includes(searchLow);
             }
 
             return true;

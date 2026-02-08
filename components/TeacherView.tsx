@@ -137,19 +137,43 @@ const TeacherView: React.FC<TeacherViewProps> = ({
   }, [isTeacher, visibleStudents]);
 
   const uniqueClasses = useMemo(() => {
-    const classes = new Set(visibleStudents.map((s) => s.class || "").filter(Boolean));
+    const classes = new Set(visibleStudents.map((s) => (s.class || "").trim().toUpperCase()).filter(Boolean));
     return Array.from(classes).sort();
   }, [visibleStudents]);
 
   const filteredStudents = useMemo(() => {
-    const q = searchTerm.toLowerCase();
-    let list = visibleStudents.filter(
-      (s) =>
-        (filterClass === "ALL" || s.class === filterClass) &&
-        (s.name.toLowerCase().includes(q) ||
-          s.mhs.toLowerCase().includes(q) ||
-          s.class.toLowerCase().includes(q))
-    );
+    // 1. Normalize Search Term
+    const rawQ = searchTerm.trim().toUpperCase();
+    // Remove accents for searching name, but keep original for class check
+    const qNorm = rawQ.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    // 2. Filter list
+    let list = visibleStudents.filter((s) => {
+      const sClassNorm = (s.class || "").trim().toUpperCase();
+
+      // A. Dropdown Filter
+      const fClassNorm = filterClass.trim().toUpperCase();
+      if (fClassNorm !== "ALL" && sClassNorm !== fClassNorm) return false;
+
+      // B. Search Box Filter
+      if (rawQ) {
+        // PRECISION FIX: If the search query is EXACTLY one of the class names, restrict to THAT class
+        if (uniqueClasses.includes(rawQ)) {
+          if (sClassNorm !== rawQ) return false;
+          return true; // Match found
+        }
+
+        // If it's a partial class match (like "8A"), and NOT a valid MHS/Name yet, we prioritize class
+        const sName = (s.name || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const sMhs = (s.mhs || "").toLowerCase();
+        const sClassRaw = (s.class || "").toLowerCase();
+        const searchLow = rawQ.toLowerCase();
+
+        return sName.includes(qNorm.toLowerCase()) || sMhs.includes(searchLow) || sClassRaw.includes(searchLow);
+      }
+
+      return true;
+    });
 
     if (sortTicks !== "none") {
       list = list.slice().sort((a, b) => {

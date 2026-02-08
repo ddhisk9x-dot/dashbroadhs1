@@ -57,7 +57,7 @@ function normalizeRows(rows: any[][]): Student[] {
   }
 
   // Identify available months from processed monthRow
-  const monthKeysAll = Array.from(new Set(monthRow.filter(m => m !== "")));
+  const monthKeysAll = Array.from(new Set(monthRow.filter(m => m !== ""))).sort();
 
   const getCol = (mk: string, subjNorm: string) => {
     for (let i = 0; i < monthRow.length; i++) {
@@ -67,22 +67,9 @@ function normalizeRows(rows: any[][]): Student[] {
     return -1;
   };
 
-  // Helper to find key fuzzily among headers
-  const findIdx = (candidates: string[]) => {
-    for (const c of candidates) {
-      const idx = headerNorm.indexOf(c);
-      if (idx >= 0) return idx;
-    }
-    for (const c of candidates) {
-      const idx = headerNorm.findIndex(h => h.includes(c));
-      if (idx >= 0) return idx;
-    }
-    return -1;
-  };
-
-  const idxMhs = findIdx(["MHS", "MA HS", "MSHS", "MÃ HS"]);
-  const idxName = findIdx(["HỌ VÀ TÊN", "HO VA TEN", "NAME", "QUY DANH"]);
-  const idxClass = findIdx(["LỚP", "LOP", "CLASS"]);
+  const idxMhs = findIdx(["MHS", "MA HS", "MSHS", "MÃ HS"], headerNorm);
+  const idxName = findIdx(["HỌ VÀ TÊN", "HO VA TEN", "NAME", "QUY DANH"], headerNorm);
+  const idxClass = findIdx(["LỚP", "LOP", "CLASS"], headerNorm);
 
   if (idxMhs < 0) return [];
 
@@ -112,8 +99,8 @@ function normalizeRows(rows: any[][]): Student[] {
         if (idx < 0) return null;
         const v = String(row[idx] || "").replace(",", ".");
         const n = parseFloat(v);
-        // Precision filtering: score must be between 0 and 10 (inclusive)
-        return (Number.isFinite(n) && n >= 0 && n <= 10) ? n : null;
+        // CRITICAL FIX: Scores can be > 10 in some scales. Set limit to 20.
+        return (Number.isFinite(n) && n >= 0 && n <= 20) ? n : null;
       };
 
       const math = parseVal(cMath);
@@ -130,6 +117,18 @@ function normalizeRows(rows: any[][]): Student[] {
   }
 
   return students;
+}
+
+function findIdx(candidates: string[], headers: string[]) {
+  for (const c of candidates) {
+    const idx = headers.indexOf(c);
+    if (idx >= 0) return idx;
+  }
+  for (const c of candidates) {
+    const idx = headers.findIndex(h => h.includes(c));
+    if (idx >= 0) return idx;
+  }
+  return -1;
 }
 
 export async function POST(req: Request) {
