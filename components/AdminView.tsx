@@ -226,11 +226,20 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user,
 
     const filteredStudents = useMemo(() => {
         const q = searchTerm.toLowerCase();
+
+        // DEBUG: Log filter values
+        console.log("[AdminTeacherMode DEBUG] filterClass:", filterClass);
+        console.log("[AdminTeacherMode DEBUG] Total students:", visibleStudents.length);
+        console.log("[AdminTeacherMode DEBUG] Unique classes in data:", [...new Set(visibleStudents.map(s => s.class))]);
+
         let list = visibleStudents.filter(
             (s) =>
                 (filterClass === "ALL" || s.class === filterClass) &&
                 (s.name.toLowerCase().includes(q) || s.mhs.toLowerCase().includes(q) || s.class.toLowerCase().includes(q))
         );
+
+        console.log("[AdminTeacherMode DEBUG] After filter:", list.length, "students");
+        console.log("[AdminTeacherMode DEBUG] First 3 filtered:", list.slice(0, 3).map(s => ({ name: s.name, class: s.class })));
 
         if (sortTicks !== "none") {
             list = list.slice().sort((a, b) => {
