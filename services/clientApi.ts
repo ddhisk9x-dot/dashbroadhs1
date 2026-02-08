@@ -50,6 +50,11 @@ export const api = {
     return { ...data.student, stats: data.stats };
   },
 
+  async getStudentHistory(mhs: string): Promise<any[]> {
+    const res = await jfetch<{ ok: boolean; data: any[] }>(`/api/student/history?mhs=${encodeURIComponent(mhs)}`);
+    return res.data || [];
+  },
+
   async importExcel(students: Student[]): Promise<{ success: boolean; error?: string }> {
     await jfetch<{ ok: boolean }>("/api/admin/save-students", {
       method: "POST",

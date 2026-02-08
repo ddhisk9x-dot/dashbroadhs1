@@ -8,6 +8,7 @@ import Header from "./Header";
 import OverviewCards from "./OverviewCards";
 import MonthNavigator from "./MonthNavigator";
 import Leaderboard from "./Leaderboard";
+import LongTermHistoryChart from "./LongTermHistoryChart";
 
 type Props = {
   student: Student;
@@ -209,6 +210,11 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
             strengthsText={(ai?.strengths && ai.strengths[0]) || "Có dữ liệu đầy đủ."}
             risksText={(ai?.risks && ai.risks[0]) || "Cần duy trì đều đặn."}
           />
+
+          {/* NEW: Long-term History Chart */}
+          <div className="animate-in fade-in slide-in-from-bottom-5 duration-700 delay-100">
+            <LongTermHistoryChart mhs={student.mhs} />
+          </div>
 
           {/* Main Dashboard Grid */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
