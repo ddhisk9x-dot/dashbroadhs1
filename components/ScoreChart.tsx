@@ -168,9 +168,9 @@ export default function ScoreChart({ data, stats, subject }: Props) {
           ) : (
             // Fallback for "General" chart (if any)
             <>
-              <Line type="monotone" dataKey="math" stroke="#3b82f6" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="lit" stroke="#ec4899" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="eng" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="math" name="Toán" stroke="#3b82f6" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="lit" name="Văn" stroke="#ec4899" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="eng" name="Anh" stroke="#8b5cf6" strokeWidth={2} dot={false} />
             </>
           )}
 

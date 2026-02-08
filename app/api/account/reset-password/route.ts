@@ -16,11 +16,18 @@ async function getStudentClassFromState(mhs: string): Promise<string | null> {
   if (!supabaseUrl || !serviceKey) throw new Error("Missing Supabase env");
 
   const supabase = createClient(supabaseUrl, serviceKey);
-  const { data, error } = await supabase
+
+  // Try DIEM_2526 first, fallback to "main"
+  let { data, error } = await supabase
     .from("app_state")
     .select("students_json")
-    .eq("id", "main")
+    .eq("id", "DIEM_2526")
     .maybeSingle();
+
+  if (!data) {
+    const fallback = await supabase.from("app_state").select("students_json").eq("id", "main").maybeSingle();
+    data = fallback.data;
+  }
 
   if (error) throw new Error(error.message);
 
