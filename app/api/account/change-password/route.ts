@@ -4,7 +4,6 @@ import { getSession } from "@/lib/session";
 import {
   fetchAccountsFromSheet,
   getOverridePassword,
-  setOverridePassword,
   writeSheetNewPassword,
 } from "@/lib/accounts";
 
@@ -64,24 +63,26 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1) DB override: MUST succeed
-    await setOverridePassword(username, acc.mhs || username, newPassword, "student_change");
-
-    // 2) Sheet write: best-effort (nếu lỗi vẫn đổi MK được vì DB override đã cập nhật)
-    let sheetWritten = false;
-    let sheetError: string | null = null;
+    // 1) Sheet write: MUST succeed (Single Source of Truth)
+    if (!process.env.ACCOUNTS_WRITE_URL || !process.env.ACCOUNTS_WRITE_SECRET) {
+      return NextResponse.json(
+        { ok: false, error: "Server missing env ACCOUNTS_WRITE_URL" },
+        { status: 500 }
+      );
+    }
 
     try {
-      // nếu bạn chưa set env ghi sheet, đừng làm fail cả đổi mật khẩu
-      if (process.env.ACCOUNTS_WRITE_URL && process.env.ACCOUNTS_WRITE_SECRET) {
-        await writeSheetNewPassword(username, newPassword, "student_change");
-        sheetWritten = true;
-      } else {
-        sheetError = "Missing env ACCOUNTS_WRITE_URL/ACCOUNTS_WRITE_SECRET (skip sheet write)";
-      }
+      await writeSheetNewPassword(username, newPassword, "student_change");
     } catch (e: any) {
-      sheetError = e?.message || "Write sheet failed";
+      return NextResponse.json(
+        { ok: false, error: "Ghi vào Sheet thất bại: " + (e?.message || "") },
+        { status: 500 }
+      );
     }
+
+    // REMOVED: setOverridePassword logic
+    const sheetWritten = true;
+    const sheetError = null;
 
     return NextResponse.json({
       ok: true,

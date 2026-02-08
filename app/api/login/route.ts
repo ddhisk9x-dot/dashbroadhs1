@@ -62,11 +62,10 @@ export async function POST(req: Request) {
         const override = await getOverridePassword(username);
 
         // Quy tắc:
-        // 1) override (DB) nếu có => CHỈ dùng override
-        // 2) nếu sheet có NEW_PASSWORD => CHỈ dùng NEW_PASSWORD
-        // 3) else => CHỈ dùng DEFAULT_PASSWORD
+        // 1) nếu sheet có NEW_PASSWORD => CHỈ dùng NEW_PASSWORD
+        // 2) else => CHỈ dùng DEFAULT_PASSWORD
+        // REMOVED: override (DB)
         const effective =
-          (override && override.trim()) ||
           (t.newPassword && t.newPassword.trim()) ||
           (t.defaultPassword && t.defaultPassword.trim()) ||
           "";
@@ -120,12 +119,10 @@ export async function POST(req: Request) {
     }
 
     // Effective password rules:
-    // 1) override (DB) if exists => ONLY that is valid
-    // 2) else sheet NEW_PASSWORD => ONLY that is valid
-    // 3) else DEFAULT_PASSWORD => ONLY that is valid
-    const override = await getOverridePassword(acc.username || mhs);
+    // 1) Sheet NEW_PASSWORD => ONLY that is valid
+    // 2) else DEFAULT_PASSWORD => ONLY that is valid
+    // REMOVED: override from Supabase (to ensure single source of truth from Sheet)
     const effective =
-      (override && override.trim()) ||
       (acc.newPassword && acc.newPassword.trim()) ||
       (acc.defaultPassword && acc.defaultPassword.trim()) ||
       "";
