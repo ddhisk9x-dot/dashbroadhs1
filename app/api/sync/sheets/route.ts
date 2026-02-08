@@ -5,60 +5,15 @@ import { getSession } from "@/lib/session";
 
 export const runtime = "nodejs";
 
-// CSV parser đơn giản (đủ cho bảng điểm)
-function parseCSV(text: string): string[][] {
-  const rows: string[][] = [];
-  let cur = "";
-  let inQuotes = false;
-  let row: string[] = [];
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-
-    if (ch === '"') {
-      if (inQuotes && text[i + 1] === '"') {
-        cur += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-
-    if (!inQuotes && ch === ",") {
-      row.push(cur);
-      cur = "";
-      continue;
-    }
-
-    if (!inQuotes && ch === "\n") {
-      row.push(cur);
-      rows.push(row);
-      row = [];
-      cur = "";
-      continue;
-    }
-
-    if (ch !== "\r") cur += ch;
-  }
-
-  if (cur.length || row.length) {
-    row.push(cur);
-    rows.push(row);
-  }
-
-  return rows;
-}
-
 function normHeader(v: any): string {
   return String(v ?? "")
-    .replace(/\uFEFF/g, "") // BOM
+    .replace(/\uFEFF/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .toUpperCase();
 }
 
-function toNumberOrNull(v: string | undefined): number | null {
+function toNumberOrNull(v: any): number | null {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
   if (!s) return null;
@@ -74,18 +29,9 @@ type Student = {
   class: string;
   scores: ScoreData[];
   aiReport?: any;
-
   actionsByMonth?: Record<string, any[]>;
   activeActions?: any[];
 };
-
-function looksLikeHtml(text: string): boolean {
-  const s = text.slice(0, 400).toLowerCase();
-  return s.includes("<!doctype html") || s.includes("<html") || s.includes("google sheets");
-}
-
-type SyncMode = "new_only" | "months";
-type SyncOpts = { mode?: SyncMode; selectedMonths?: string[] };
 
 function isMonthKey(x: string) {
   return /^\d{4}-\d{2}$/.test(String(x || "").trim());
@@ -102,10 +48,7 @@ function nextMonthKey(monthKey: string): string {
   let y = parseInt(yStr, 10);
   let m = parseInt(mStr, 10);
   m += 1;
-  if (m === 13) {
-    m = 1;
-    y += 1;
-  }
+  if (m === 13) { m = 1; y += 1; }
   return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}`;
 }
 
@@ -123,7 +66,6 @@ function getTaskMonthFromScores(scores: ScoreData[] | undefined): string {
 function normalizeActionsStorage(st: Student): Student {
   const s: Student = { ...st };
   s.actionsByMonth = s.actionsByMonth && typeof s.actionsByMonth === "object" ? s.actionsByMonth : {};
-
   const aa = Array.isArray(s.activeActions) ? s.activeActions : [];
   const taskMonth = getTaskMonthFromScores(s.scores);
 
@@ -141,65 +83,66 @@ function normalizeActionsStorage(st: Student): Student {
     if (latestTask && Array.isArray(s.actionsByMonth![latestTask])) s.activeActions = s.actionsByMonth![latestTask];
     else s.activeActions = aa;
   }
-
   return s;
+}
+
+type SyncMode = "new_only" | "months";
+type SyncOpts = { mode?: SyncMode; selectedMonths?: string[]; sheetName?: string };
+
+async function fetchFromAppsScript(sheetName: string): Promise<any[][]> {
+  const baseUrl = process.env.APPS_SCRIPT_URL;
+  if (!baseUrl) throw new Error("Missing env: APPS_SCRIPT_URL");
+
+  const url = `${baseUrl}?action=get_data&sheet=${encodeURIComponent(sheetName)}`;
+  const resp = await fetch(url, { cache: "no-store", redirect: "follow" });
+  if (!resp.ok) throw new Error(`Apps Script fetch failed: ${resp.status}`);
+
+  const json = await resp.json();
+  if (!json.ok) throw new Error(json.error || "Apps Script returned error");
+  if (!Array.isArray(json.data)) throw new Error("Apps Script did not return data array");
+
+  return json.data;
 }
 
 async function doSyncFromSheet(opts?: SyncOpts) {
   const mode: SyncMode = opts?.mode ?? "new_only";
   const selectedMonths: string[] = Array.isArray(opts?.selectedMonths) ? opts!.selectedMonths! : [];
-
-  const sheetUrl = process.env.SHEET_CSV_URL;
-  if (!sheetUrl) throw new Error("Missing env: SHEET_CSV_URL");
+  const sheetName = opts?.sheetName || "DIEM_2526";
 
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) throw new Error("Missing Supabase env");
 
-  // 1) Fetch CSV
-  const resp = await fetch(sheetUrl, {
-    cache: "no-store",
-    redirect: "follow",
-    headers: { Accept: "text/csv,text/plain;q=0.9,*/*;q=0.8" },
-  });
+  // 1) Fetch từ Apps Script
+  const rows = await fetchFromAppsScript(sheetName);
 
-  if (!resp.ok) throw new Error(`Fetch CSV failed: ${resp.status}`);
-
-  const contentType = resp.headers.get("content-type") || "";
-  const text = await resp.text();
-
-  if (looksLikeHtml(text) || contentType.includes("text/html")) {
-    const preview = text.slice(0, 200).replace(/\s+/g, " ");
-    throw new Error(
-      `SHEET_CSV_URL is not a CSV export link (got HTML). ` +
-      `Use: https://docs.google.com/spreadsheets/d/<ID>/export?format=csv&gid=<GID>. ` +
-      `Preview: ${preview}`
-    );
-  }
-
-  const rows = parseCSV(text);
-
-  // 2) Validate
-  if (rows.length < 3) throw new Error("CSV must have 2 header rows + data rows");
+  if (rows.length < 3) throw new Error("Sheet must have 2 header rows + data rows");
 
   const monthRow = rows[0] ?? [];
   const headerRow = rows[1] ?? [];
   const header2 = headerRow.map(normHeader);
 
   const idxMhs = header2.indexOf("MHS");
-  const idxName = header2.indexOf("HỌ VÀ TÊN");
-  const idxClass = header2.indexOf("LỚP");
+  const idxName = header2.findIndex(h => h.includes("HỌ") && h.includes("TÊN"));
+  const idxClass = header2.findIndex(h => h === "LỚP" || h === "LOP");
 
   if (idxMhs < 0) {
-    const hPreview = headerRow.slice(0, 30).map((x) => String(x ?? "")).join(" | ");
-    throw new Error(`Missing column: MHS (header row 2). Header preview: ${hPreview}`);
+    const hPreview = headerRow.slice(0, 15).map((x) => String(x ?? "")).join(" | ");
+    throw new Error(`Missing column: MHS. Header preview: ${hPreview}`);
   }
-  if (idxName < 0) throw new Error("Missing column: HỌ VÀ TÊN");
-  if (idxClass < 0) throw new Error("Missing column: LỚP");
 
-  const monthKeysAll = Array.from(
-    new Set(monthRow.map((x) => String(x ?? "").trim()).filter((x) => isMonthKey(x)))
-  );
+  // Forward fill month row để xử lý ô gộp
+  const filledMonthRow: string[] = [];
+  let currentMonth = "";
+  for (let i = 0; i < monthRow.length; i++) {
+    const v = String(monthRow[i] || "").trim().replace(".", "-");
+    if (isMonthKey(v)) {
+      currentMonth = v;
+    }
+    filledMonthRow[i] = currentMonth;
+  }
+
+  const monthKeysAll = Array.from(new Set(filledMonthRow.filter((x) => isMonthKey(x)))).sort();
 
   if (monthKeysAll.length === 0) {
     throw new Error('No month_key detected on row 1. Expected values like "2025-08".');
@@ -207,6 +150,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
   const supabase = createClient(supabaseUrl, serviceKey);
 
+  // 2) Load dữ liệu cũ
   const { data: oldState, error: oldErr } = await supabase
     .from("app_state")
     .select("students_json")
@@ -254,16 +198,17 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     }
   }
 
+  // Hàm tìm cột môn theo tháng - có forward fill
   const getCol = (monthKey: string, subjectUpper: string) => {
     const subj = normHeader(subjectUpper);
-    for (let i = 0; i < monthRow.length; i++) {
-      const mk = String(monthRow[i] ?? "").trim();
-      if (mk !== monthKey) continue;
-      if (header2[i] === subj) return i;
+    for (let i = 0; i < filledMonthRow.length; i++) {
+      if (filledMonthRow[i] !== monthKey) continue;
+      if (header2[i] === subj || header2[i].includes(subj)) return i;
     }
     return -1;
   };
 
+  // 3) Build students
   const studentMap = new Map<string, Student>();
 
   for (let r = 2; r < rows.length; r++) {
@@ -271,8 +216,8 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     const mhs = String(row[idxMhs] ?? "").trim();
     if (!mhs) continue;
 
-    const name = String(row[idxName] ?? "").trim() || "Unknown";
-    const className = String(row[idxClass] ?? "").trim() || "";
+    const name = idxName >= 0 ? String(row[idxName] ?? "").trim() || "Unknown" : "Unknown";
+    const className = idxClass >= 0 ? String(row[idxClass] ?? "").trim() : "";
 
     let st = studentMap.get(mhs);
     if (!st) {
@@ -305,6 +250,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
   const newStudents = Array.from(studentMap.values()).map(normalizeActionsStorage);
 
+  // 4) Merge
   const mergedStudents: Student[] = newStudents.map((ns) => {
     const old = oldMap.get(String(ns.mhs).trim());
 
@@ -333,10 +279,12 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     return normalizeActionsStorage(merged);
   });
 
+  // 5) Giữ học sinh cũ không có trong sheet mới
   for (const [mhs, old] of oldMap.entries()) {
     if (!mergedStudents.some((s) => s.mhs === mhs)) mergedStudents.push(old);
   }
 
+  // 6) Save
   const { error } = await supabase
     .from("app_state")
     .upsert({ id: "main", students_json: { students: mergedStudents } }, { onConflict: "id" });
@@ -361,15 +309,14 @@ export async function POST(req: Request) {
   }
 
   let body: any = {};
-  try {
-    body = await req.json();
-  } catch { }
+  try { body = await req.json(); } catch { }
 
   const mode: SyncMode = body?.mode === "months" ? "months" : "new_only";
   const selectedMonths: string[] = Array.isArray(body?.selectedMonths) ? body.selectedMonths : [];
+  const sheetName = body?.sheetName || "DIEM_2526";
 
   try {
-    const result = await doSyncFromSheet({ mode, selectedMonths });
+    const result = await doSyncFromSheet({ mode, selectedMonths, sheetName });
     return NextResponse.json(result);
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
