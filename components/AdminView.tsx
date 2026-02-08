@@ -24,8 +24,15 @@ interface AdminViewProps {
 }
 
 // --- Helper Functions (Replicated from TeacherView for parity) ---
-function isoDate(d: Date) { return d.toISOString().slice(0, 10); }
-function isoMonth(d: Date) { return d.toISOString().slice(0, 7); }
+function isoDate(d: Date) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+}
+function isoMonth(d: Date) {
+    return isoDate(d).slice(0, 7);
+}
 function isMonthKey(m: any) { return /^\d{4}-\d{2}$/.test(String(m || "").trim()); }
 function nextMonthKey(monthKey: string): string {
     const mk = String(monthKey || "").trim();

@@ -15,10 +15,13 @@ import { Users, BarChart } from "lucide-react";
 
 // Helper functions (duplicated for now)
 function isoDate(d: Date) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 function isoMonth(d: Date) {
-  return d.toISOString().slice(0, 7);
+  return isoDate(d).slice(0, 7);
 }
 function isMonthKey(m: any) {
   return /^\d{4}-\d{2}$/.test(String(m || "").trim());

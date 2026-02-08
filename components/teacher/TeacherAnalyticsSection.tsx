@@ -8,7 +8,11 @@ import {
 } from "recharts";
 
 // Helper functions
-function isoMonth(d: Date) { return d.toISOString().slice(0, 7); }
+function isoMonth(d: Date) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    return `${y}-${m}`;
+}
 function isMonthKey(m: any) { return /^\d{4}-\d{2}$/.test(String(m || "").trim()); }
 
 interface TeacherAnalyticsSectionProps {
