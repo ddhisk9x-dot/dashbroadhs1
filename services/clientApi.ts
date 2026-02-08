@@ -39,8 +39,9 @@ export const api = {
     await jfetch<{ ok: boolean }>("/api/logout", { method: "POST" });
   },
 
-  async getAllStudents(): Promise<Student[]> {
-    const data = await jfetch<{ students: Student[]; meta?: any }>("/api/admin/get-students");
+  async getAllStudents(sheetName?: string): Promise<Student[]> {
+    const url = sheetName ? `/api/admin/get-students?sheet=${sheetName}` : "/api/admin/get-students";
+    const data = await jfetch<{ students: Student[]; meta?: any }>(url);
     return data.students || [];
   },
 
@@ -112,7 +113,7 @@ export const api = {
     });
   },
 
-  async syncSheet(opts?: { mode?: "new_only" | "months"; selectedMonths?: string[] }) {
+  async syncSheet(opts?: { mode?: "new_only" | "months" | "overwrite"; selectedMonths?: string[]; sheetName?: string }) {
     return jfetch("/api/sync/sheets", {
       method: "POST",
       body: JSON.stringify(opts || { mode: "new_only" }),

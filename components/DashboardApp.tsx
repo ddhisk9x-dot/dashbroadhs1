@@ -114,6 +114,10 @@ export default function DashboardApp() {
   // Student data
   const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
 
+  // ✅ NEW: Năm học hiện tại (dùng làm sheetName)
+  const [selectedYear, setSelectedYear] = useState<string>("DIEM_2526");
+  const availableYears = ["DIEM_2526", "DIEM_2627"]; // Có thể load dynamic sau
+
   const view = useMemo(() => {
     if (!user) return "LOGIN";
     if (user.role === "STUDENT") return "STUDENT";
@@ -121,7 +125,7 @@ export default function DashboardApp() {
     return "TEACHER";
   }, [user]);
 
-  async function loadMeAndData() {
+  async function loadMeAndData(sheetName: string = selectedYear) {
     setLoading(true);
     try {
       const me = await fetch("/api/me", { credentials: "include" }).then((r) => r.json());
@@ -141,7 +145,8 @@ export default function DashboardApp() {
           const data = await api.getStudentMe(u.username);
           setCurrentStudent(data);
         } else {
-          const list = await api.getAllStudents();
+          // ✅ Truyền sheetName vào API
+          const list = await api.getAllStudents(sheetName);
           setStudents(list);
         }
       } else {
@@ -159,9 +164,15 @@ export default function DashboardApp() {
   }
 
   useEffect(() => {
-    loadMeAndData();
+    loadMeAndData(selectedYear);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ✅ NEW: Khi đổi năm học, reload data
+  const handleYearChange = async (newYear: string) => {
+    setSelectedYear(newYear);
+    await loadMeAndData(newYear);
+  };
 
   const handleLogin = async (username: string, password: string) => {
     const res = await api.login(username, password);
@@ -174,7 +185,7 @@ export default function DashboardApp() {
       const data = await api.getStudentMe(res.user.username);
       setCurrentStudent(data);
     } else {
-      const list = await api.getAllStudents();
+      const list = await api.getAllStudents(selectedYear);
       setStudents(list);
     }
   };
@@ -256,6 +267,9 @@ export default function DashboardApp() {
         onLogout={onLogout}
         onImportData={onImportData}
         onUpdateStudentReport={onUpdateStudentReport}
+        selectedYear={selectedYear}
+        availableYears={availableYears}
+        onYearChange={handleYearChange}
       />
     );
   }

@@ -21,6 +21,10 @@ interface AdminViewProps {
     onLogout: () => void;
     onImportData: (newStudents: Student[]) => void;
     onUpdateStudentReport: (mhs: string, report: AIReport, actions: StudyAction[]) => void;
+    // ✅ NEW: Multi-Year Support
+    selectedYear?: string;
+    availableYears?: string[];
+    onYearChange?: (year: string) => void;
 }
 
 // --- Helper Functions (Replicated from TeacherView for parity) ---
@@ -87,7 +91,7 @@ function countTicksForMonth(student: Student, month: string): number {
     return 0;
 }
 
-export default function AdminView({ user, students, onLogout, onImportData, onUpdateStudentReport }: AdminViewProps) {
+export default function AdminView({ user, students, onLogout, onImportData, onUpdateStudentReport, selectedYear, availableYears, onYearChange }: AdminViewProps) {
     const [activeTab, setActiveTab] = useState<"DASHBOARD" | "USERS" | "CLASSES" | "TEACHER_MODE" | "ANALYTICS">("DASHBOARD");
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -108,6 +112,20 @@ export default function AdminView({ user, students, onLogout, onImportData, onUp
                     <div>
                         <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">Admin Portal</h1>
                         <div className="text-sm text-slate-400 mt-1">DeepDashboard</div>
+                        {/* ✅ Year Selector */}
+                        {availableYears && availableYears.length > 0 && (
+                            <select
+                                value={selectedYear || "DIEM_2526"}
+                                onChange={(e) => onYearChange?.(e.target.value)}
+                                className="mt-2 w-full bg-slate-800 text-white border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                                {availableYears.map(y => (
+                                    <option key={y} value={y}>
+                                        {y.replace("DIEM_", "Năm học 20")}
+                                    </option>
+                                ))}
+                            </select>
+                        )}
                     </div>
                     <button className="md:hidden text-slate-400" onClick={() => setIsSidebarOpen(false)}><X size={20} /></button>
                 </div>
