@@ -8,7 +8,7 @@ const SPREADSHEET_ID = "1BMeD4gUt0AxjomdjtmHJFbwQAfwZC0yppSkf_dTxEVQ";
 // UPDATE THESE NAMES IF NEEDED
 const SHEET_ACCOUNTS = "ACCOUNTS";
 const SHEET_TEACHERS = "TEACHERS"; // Check your sheet name for teachers
-const SHEET_STUDENTS = "DATA_ALL"; // Check your main student/score sheet name
+const SHEET_STUDENTS = "DIEM_2526"; // Check your main student/score sheet name
 
 function doPost(e) {
     try {
