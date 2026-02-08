@@ -163,14 +163,15 @@ export default function ScoreChart({ data, stats, subject }: Props) {
                 }}
                 activeDot={{ r: 6, strokeWidth: 0, fill: conf?.color }}
                 animationDuration={1500}
+                connectNulls // Ensure lines are connected even if data is missing
               />
             </>
           ) : (
             // Fallback for "General" chart (if any)
             <>
-              <Line type="monotone" dataKey="math" name="Toán" stroke="#3b82f6" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="lit" name="Văn" stroke="#ec4899" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="eng" name="Anh" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="math" name="Toán" stroke="#3b82f6" strokeWidth={2} dot={false} connectNulls />
+              <Line type="monotone" dataKey="lit" name="Văn" stroke="#ec4899" strokeWidth={2} dot={false} connectNulls />
+              <Line type="monotone" dataKey="eng" name="Anh" stroke="#8b5cf6" strokeWidth={2} dot={false} connectNulls />
             </>
           )}
 

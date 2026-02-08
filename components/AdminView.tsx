@@ -225,13 +225,36 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user,
     }, [visibleStudents]);
 
     const filteredStudents = useMemo(() => {
-        const q = searchTerm.toLowerCase();
-        let list = visibleStudents.filter(
-            (s) =>
-                (filterClass === "ALL" || s.class === filterClass) &&
-                (s.name.toLowerCase().includes(q) || s.mhs.toLowerCase().includes(q) || s.class.toLowerCase().includes(q))
-        );
+        // 1. Normalize Search Term
+        const rawQ = searchTerm.trim().toLowerCase();
+        // Remove accents for better search
+        const q = rawQ.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
+        // 2. Filter list
+        let list = visibleStudents.filter((s) => {
+            // A. Class Filter (Absolute Match)
+            if (filterClass !== "ALL" && s.class !== filterClass) {
+                return false;
+            }
+
+            // B. Search Filter (Relative Match)
+            if (q) {
+                const sName = (s.name || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                const sMhs = (s.mhs || "").toLowerCase();
+                const sClass = (s.class || "").toLowerCase();
+
+                // Allow searching by Name (accent-insensitive), MHS, or Class
+                const matchesName = sName.includes(q);
+                const matchesMhs = sMhs.includes(q);
+                const matchesClass = sClass.includes(q);
+
+                if (!matchesName && !matchesMhs && !matchesClass) return false;
+            }
+
+            return true;
+        });
+
+        // 3. Sort (Legacy logic kept)
         if (sortTicks !== "none") {
             list = list.slice().sort((a, b) => {
                 const getTicks = (st: Student) => {
