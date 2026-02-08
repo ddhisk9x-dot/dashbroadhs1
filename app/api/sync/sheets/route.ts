@@ -118,15 +118,22 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     const oldStudents = (oldData?.students_json?.students as Student[]) || [];
-    const oldMap = new Map(oldStudents.map(s => [s.mhs, s]));
+    const oldStudents = (oldData?.students_json?.students as Student[]) || [];
+    // Normalize old keys for robust matching
+    const oldMap = new Map(oldStudents.map(s => [String(s.mhs || "").trim().toUpperCase(), s]));
 
     // 3. Merge Logic (Preserve AI Reports & Actions)
     const mergedStudents = newStudents.map(ns => {
-      const old = oldMap.get(ns.mhs);
+      // Normalize new key
+      const nsKey = String(ns.mhs || "").trim().toUpperCase();
+      const old = oldMap.get(nsKey);
+
       if (!old) return ns;
 
       return {
         ...ns,
+        // Ensure we explicitly keep MHS format if needed, OR keep new one.
+        // Identify & Merge Metadata
         aiReport: old.aiReport,
         actionsByMonth: old.actionsByMonth || {},
         activeActions: old.activeActions || []
