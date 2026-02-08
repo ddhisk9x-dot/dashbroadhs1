@@ -55,6 +55,7 @@ interface TeacherStudentTableProps {
     onGenerateAI: (student: Student) => void;
     onViewStudent: (mhs: string) => void;
     loadingMhs: string | null;
+    onStudentAction?: (mhs: string) => void; // Mới: Mở modal quản lý HS
 }
 
 export default function TeacherStudentTable({
@@ -68,6 +69,7 @@ export default function TeacherStudentTable({
     onGenerateAI,
     onViewStudent,
     loadingMhs,
+    onStudentAction,
 }: TeacherStudentTableProps) {
     return (
         <div className="bg-white/70 backdrop-blur-xl border border-white/50 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
@@ -194,10 +196,10 @@ export default function TeacherStudentTable({
                                                 <div className="flex items-center gap-2">
                                                     <span
                                                         className={`w-8 h-8 flex items-center justify-center rounded-lg font-bold text-xs shadow-sm bg-gradient-to-br ${Number(avg) >= 8
-                                                                ? "from-emerald-400 to-emerald-600 text-white"
-                                                                : Number(avg) >= 5
-                                                                    ? "from-amber-400 to-amber-600 text-white"
-                                                                    : "from-rose-400 to-rose-600 text-white"
+                                                            ? "from-emerald-400 to-emerald-600 text-white"
+                                                            : Number(avg) >= 5
+                                                                ? "from-amber-400 to-amber-600 text-white"
+                                                                : "from-rose-400 to-rose-600 text-white"
                                                             }`}
                                                     >
                                                         {avg}
@@ -272,6 +274,17 @@ export default function TeacherStudentTable({
                                                 >
                                                     <FileText size={18} />
                                                 </button>
+
+                                                {onStudentAction && !isTeacher && (
+                                                    <button
+                                                        onClick={() => onStudentAction(student.mhs)}
+                                                        className="p-2 bg-white/50 border border-slate-200 text-slate-500 hover:text-amber-600 hover:border-amber-200 hover:bg-amber-50 rounded-xl transition-all shadow-sm hover:shadow-lg hover:-translate-y-0.5"
+                                                        title="Quản lý HS"
+                                                        type="button"
+                                                    >
+                                                        <MoreHorizontal size={18} />
+                                                    </button>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>

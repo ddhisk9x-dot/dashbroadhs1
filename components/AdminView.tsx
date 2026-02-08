@@ -149,7 +149,7 @@ export default function AdminView({ user, students, onLogout, onImportData, onUp
                     <div className="p-4 md:p-8">
                         {activeTab === "DASHBOARD" && <AdminDashboardTab students={students} />}
                         {activeTab === "USERS" && <AdminUsersTab />}
-                        {activeTab === "CLASSES" && <AdminClassesTab />}
+                        {activeTab === "CLASSES" && <AdminClassesTab students={students} />}
                     </div>
                 )}
             </main>
@@ -167,6 +167,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
     const [loadingMhs, setLoadingMhs] = useState<string | null>(null);
     const [viewingMhs, setViewingMhs] = useState<string | null>(null);
     const viewingStudent = students.find(s => s.mhs === viewingMhs);
+    const [studentActionMhs, setStudentActionMhs] = useState<string | null>(null);
 
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedMhs, setSelectedMhs] = useState<Set<string>>(new Set());
@@ -373,6 +374,7 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
                     onSelectStudent={(mhs, checked) => setSelectedMhs(prev => { const next = new Set(prev); if (checked) next.add(mhs); else next.delete(mhs); return next; })}
                     sortTicks={sortTicks} onSortTicks={() => setSortTicks(prev => prev === "desc" ? "asc" : prev === "asc" ? "none" : "desc")}
                     onGenerateAI={handleGenerateAI} onViewStudent={setViewingMhs} loadingMhs={loadingMhs}
+                    onStudentAction={setStudentActionMhs}
                 />
             </div>
             {viewingStudent && (
@@ -382,6 +384,13 @@ function AdminTeacherMode({ students, onImportData, onUpdateStudentReport, user 
                 />
             )}
             {addStudentModalOpen && <AddStudentModal onClose={() => setAddStudentModalOpen(false)} />}
+            {studentActionMhs && (
+                <StudentActionModal
+                    mhs={studentActionMhs}
+                    student={students.find(s => s.mhs === studentActionMhs)}
+                    onClose={() => setStudentActionMhs(null)}
+                />
+            )}
         </div>
     )
 }
@@ -578,17 +587,30 @@ function UserModal({ user, onClose, onSave }: { user: AdminUser | null; onClose:
 
 
 interface ClassItem { id: string; name: string; teacherId?: string; studentCount: number; }
-function AdminClassesTab() {
-    const [classes, setClasses] = useState<ClassItem[]>([{ id: "10A1", name: "10A1", teacherId: "gv01", studentCount: 35 }, { id: "11A2", name: "11A2", teacherId: "gv02", studentCount: 32 }]);
+function AdminClassesTab({ students }: { students: Student[] }) {
+    // Tự động tính danh sách lớp từ dữ liệu học sinh
+    const classes = useMemo(() => {
+        const classMap = new Map<string, number>();
+        students.forEach(s => {
+            const cls = s.class || "Không có lớp";
+            classMap.set(cls, (classMap.get(cls) || 0) + 1);
+        });
+        return Array.from(classMap.entries()).map(([name, count]) => ({
+            id: name,
+            name,
+            teacherId: "", // TODO: Có thể liên kết với GVCN từ sheet TEACHERS
+            studentCount: count,
+        })).sort((a, b) => a.name.localeCompare(b.name));
+    }, [students]);
+
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const handleAddClass = (cls: ClassItem) => { setClasses([...classes, cls]); setIsModalOpen(false); };
-    const handleDelete = (id: string) => { if (confirm(`Xóa lớp ${id}?`)) setClasses(classes.filter((c) => c.id !== id)); };
+    const handleAddClass = () => { alert("Để thêm lớp mới, vui lòng thêm học sinh vào lớp đó trên Google Sheets."); setIsModalOpen(false); };
     return (
         <div className="space-y-6 max-w-5xl mx-auto">
-            <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-slate-800">Quản lý Lớp học (Demo)</h2><button onClick={() => setIsModalOpen(true)} className="bg-purple-600 text-white px-4 py-2 rounded-xl flex items-center gap-2"><School size={18} /><span>Thêm lớp</span></button></div>
+            <div className="flex items-center justify-between"><h2 className="text-2xl font-bold text-slate-800">Quản lý Lớp học</h2></div>
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                <table className="w-full text-left"><thead className="bg-slate-50 border-b"><tr><th className="px-6 py-4">Lớp</th><th className="px-6 py-4">GVCN</th><th className="px-6 py-4">Sĩ số</th><th className="px-6 py-4 text-right">Action</th></tr></thead>
-                    <tbody className="divide-y">{classes.map(c => (<tr key={c.id} className="hover:bg-slate-50"><td className="px-6 py-4">{c.name}</td><td className="px-6 py-4">{c.teacherId}</td><td className="px-6 py-4"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-bold">{c.studentCount} HS</span></td><td className="px-6 py-4 text-right"><button onClick={() => handleDelete(c.id)} className="text-red-600 hover:text-red-800 text-sm">Xóa</button></td></tr>))}</tbody></table>
+                <table className="w-full text-left"><thead className="bg-slate-50 border-b"><tr><th className="px-6 py-4">Lớp</th><th className="px-6 py-4">GVCN</th><th className="px-6 py-4 text-right">Sĩ số</th></tr></thead>
+                    <tbody className="divide-y">{classes.map(c => (<tr key={c.id} className="hover:bg-slate-50"><td className="px-6 py-4 font-medium">{c.name}</td><td className="px-6 py-4 text-slate-500">{c.teacherId || "—"}</td><td className="px-6 py-4 text-right"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-bold">{c.studentCount} HS</span></td></tr>))}</tbody></table>
             </div>
             {isModalOpen && <ClassModal onClose={() => setIsModalOpen(false)} onSave={handleAddClass} />}
         </div>
@@ -1209,6 +1231,108 @@ function AddStudentModal({ onClose }: { onClose: () => void }) {
                         {loading ? "Đang lưu..." : "Lưu"}
                     </button>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+// Modal Xóa/Chuyển lớp Học sinh
+function StudentActionModal({ mhs, student, onClose }: { mhs: string; student?: Student; onClose: () => void }) {
+    const [newClass, setNewClass] = useState(student?.class || "");
+    const [loading, setLoading] = useState(false);
+    const [actionType, setActionType] = useState<"move" | "delete" | null>(null);
+
+    const handleMove = async () => {
+        if (!newClass.trim()) { alert("Vui lòng nhập lớp mới!"); return; }
+        setLoading(true);
+        try {
+            const res = await api.updateStudent(mhs, { newClass: newClass.trim() });
+            if (res && res.ok) {
+                alert("Đã chuyển lớp! Vui lòng bấm Đồng bộ để cập nhật danh sách.");
+                onClose();
+            } else {
+                alert("Lỗi: " + (res.error || "Unknown"));
+            }
+        } catch (e: any) { alert("Lỗi kết nối: " + e.message); }
+        setLoading(false);
+    };
+
+    const handleDelete = async () => {
+        if (!confirm(`Bạn có chắc chắn muốn XÓA học sinh ${student?.name || mhs}? Hành động này không thể hoàn tác!`)) return;
+        setLoading(true);
+        try {
+            const res = await api.deleteStudent(mhs);
+            if (res && res.ok) {
+                alert("Đã xóa học sinh! Vui lòng bấm Đồng bộ để cập nhật danh sách.");
+                onClose();
+            } else {
+                alert("Lỗi: " + (res.error || "Unknown"));
+            }
+        } catch (e: any) { alert("Lỗi kết nối: " + e.message); }
+        setLoading(false);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl">
+                <h3 className="text-xl font-bold mb-4 text-slate-800">Quản lý Học sinh</h3>
+                <div className="bg-slate-50 p-4 rounded-lg mb-4">
+                    <div className="text-sm text-slate-600">Mã HS: <span className="font-mono font-bold">{mhs}</span></div>
+                    {student && <div className="text-lg font-bold text-slate-800">{student.name}</div>}
+                    {student && <div className="text-sm text-slate-500">Lớp hiện tại: {student.class}</div>}
+                </div>
+
+                {!actionType && (
+                    <div className="space-y-3">
+                        <button
+                            onClick={() => setActionType("move")}
+                            className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-xl font-medium transition-colors"
+                        >
+                            Chuyển lớp
+                        </button>
+                        <button
+                            onClick={() => setActionType("delete")}
+                            className="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-xl font-medium transition-colors"
+                        >
+                            Xóa học sinh
+                        </button>
+                        <button onClick={onClose} className="w-full text-slate-500 py-2">Hủy</button>
+                    </div>
+                )}
+
+                {actionType === "move" && (
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Lớp mới</label>
+                            <input
+                                value={newClass}
+                                onChange={e => setNewClass(e.target.value)}
+                                placeholder="VD: 10A2"
+                                className="w-full border rounded-lg px-3 py-2"
+                            />
+                        </div>
+                        <div className="flex justify-end gap-3">
+                            <button onClick={() => setActionType(null)} className="text-slate-500">Quay lại</button>
+                            <button onClick={handleMove} disabled={loading} className="bg-blue-600 text-white px-4 py-2 rounded-lg disabled:opacity-50">
+                                {loading ? "Đang xử lý..." : "Xác nhận"}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {actionType === "delete" && (
+                    <div className="space-y-4">
+                        <div className="bg-red-50 border border-red-200 p-4 rounded-lg text-red-800 text-sm">
+                            <strong>Cảnh báo:</strong> Hành động này sẽ xóa học sinh khỏi Google Sheets và KHÔNG THỂ hoàn tác!
+                        </div>
+                        <div className="flex justify-end gap-3">
+                            <button onClick={() => setActionType(null)} className="text-slate-500">Quay lại</button>
+                            <button onClick={handleDelete} disabled={loading} className="bg-red-600 text-white px-4 py-2 rounded-lg disabled:opacity-50">
+                                {loading ? "Đang xử lý..." : "Xóa học sinh"}
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -135,7 +135,21 @@ export const api = {
 
   async getUsers() {
     return jfetch<{ ok: boolean; users?: any[]; error?: string }>("/api/admin/users");
-  }
+  },
+
+  async deleteStudent(mhs: string) {
+    return jfetch<{ ok: boolean; message?: string; error?: string }>("/api/admin/delete-student", {
+      method: "POST",
+      body: JSON.stringify({ mhs }),
+    });
+  },
+
+  async updateStudent(mhs: string, data: { newClass?: string; newName?: string }) {
+    return jfetch<{ ok: boolean; message?: string; error?: string }>("/api/admin/update-student", {
+      method: "POST",
+      body: JSON.stringify({ mhs, ...data }),
+    });
+  },
 };
 
 export const generateStudentReport = api.generateStudentReport;
