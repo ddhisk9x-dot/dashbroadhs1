@@ -177,313 +177,314 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   const rawData = await fetchFromAppsScript(sheetName);
 
   if (!Array.isArray(rawData) || rawData.length === 0) {
-    // Empty sheet logic
-    // Determine Data Format
-    let isObjectFormat = false;
-    if (rawData.length > 0 && typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
-      isObjectFormat = true;
-    } else if (rawData.length < 3) {
-      if (rawData.length === 0) return { students: 0, monthsAll: [], monthsSynced: [], dbId };
-      throw new Error(`Sheet too short (rows=${rawData.length}). Need headers.`);
-    }
+    return { students: 0, monthsAll: [], monthsSynced: [], dbId };
+  }
 
-    let monthKeysAll: string[] = [];
-    let newStudents: Student[] = [];
+  // Determine Data Format
+  let isObjectFormat = false;
+  if (typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
+    isObjectFormat = true;
+  } else if (rawData.length < 3) {
+    throw new Error(`Sheet too short (rows=${rawData.length}). Need headers.`);
+  }
 
-    // ==========================================
-    // PARSING STRATEGY
-    // ==========================================
-    if (isObjectFormat) {
-      // --- OBJECT FORMAT (User's Current Script) ---
-      const studentsData = rawData;
+  let monthKeysAll: string[] = [];
+  let newStudents: Student[] = [];
 
-      const allMonths = new Set<string>();
-      // Scan first few rows to find month keys "YYYY-MM SUBJECT"
-      // Use regex /^(\d{4}-\d{2})/ to capture date at start of key
-      studentsData.slice(0, 15).forEach((st: any) => {
-        Object.keys(st).forEach(k => {
-          const match = k.trim().match(/^(\d{4}-\d{2})/);
-          if (match) allMonths.add(match[1]);
-        });
+  // ==========================================
+  // PARSING STRATEGY
+  // ==========================================
+  if (isObjectFormat) {
+    // --- OBJECT FORMAT (User's Current Script) ---
+    const studentsData = rawData;
+
+    const allMonths = new Set<string>();
+    // Scan first few rows to find month keys "YYYY-MM SUBJECT"
+    // Use regex /^(\d{4}-\d{2})/ to capture date at start of key
+    studentsData.slice(0, 15).forEach((st: any) => {
+      Object.keys(st).forEach(k => {
+        const match = k.trim().match(/^(\d{4}-\d{2})/);
+        if (match) allMonths.add(match[1]);
       });
-      monthKeysAll = Array.from(allMonths).sort();
-
-      // Debug check
-      if (monthKeysAll.length === 0) {
-        const sample = studentsData[0] ? Object.keys(studentsData[0]).slice(0, 10).join(", ") : "Empty";
-        throw new Error(`No months found in Object format. Sample keys: [${sample}]`);
-      }
-
-      // Parse Students
-      newStudents = studentsData.map((st: any) => {
-        const mhs = String(st.MHS || st["MÃ HS"] || "").trim();
-        const name = String(st["HỌ VÀ TÊN"] || st.NAME || "").trim();
-        const cls = String(st["LỚP"] || st.CLASS || "").trim();
-
-        if (!mhs) return null;
-
-        const scores: ScoreData[] = [];
-        monthKeysAll.forEach(m => {
-          // Try variations: "2025-08 TOAN" or "2025-08 TOÁN"
-          // RegExp to find key starting with m and containing subject
-          // Simple strict check first for performance
-          const mathVal = parseScoreValue(st[`${m} TOÁN`] ?? st[`${m} TOAN`]);
-          const litVal = parseScoreValue(st[`${m} NGỮ VĂN`] ?? st[`${m} VAN`] ?? st[`${m} NGU VAN`]);
-          const engVal = parseScoreValue(st[`${m} TIẾNG ANH`] ?? st[`${m} ANH`] ?? st[`${m} TIENG ANH`]);
-
-          if (mathVal !== null || litVal !== null || engVal !== null) {
-            scores.push({ month: m, math: mathVal, lit: litVal, eng: engVal });
-          }
-        });
-
-        return {
-          mhs,
-          name: name || "Unknown",
-          class: cls,
-          scores,
-          activeActions: [],
-          actionsByMonth: {}
-        } as Student;
-      }).filter((x): x is Student => x !== null);
-
-    } else {
-      // --- 2D ARRAY FORMAT (Standard / Old Script) ---
-      const rows = rawData;
-      const monthRow = rows[0] ?? [];
-      const headerRow = rows[1] ?? [];
-      const header2 = headerRow.map(normHeader);
-
-      const idxMhs = header2.indexOf("MHS");
-      const idxName = header2.findIndex(h => h.includes("HỌ") && h.includes("TÊN"));
-      const idxClass = header2.findIndex(h => h === "LỚP" || h === "LOP");
-
-      if (idxMhs < 0) {
-        const hPreview = headerRow.slice(0, 10).join("|");
-        throw new Error(`Missing column MHS in 2D array. Header: ${hPreview}`);
-      }
-
-      const filledMonthRow: string[] = [];
-      let currentMonth = "";
-      for (let i = 0; i < monthRow.length; i++) {
-        const val = monthRow[i];
-        const parsed = parseMonthValue(val);
-        // Only take strict YYYY-MM
-        if (parsed && /^\d{4}-\d{2}$/.test(parsed)) currentMonth = parsed;
-        filledMonthRow[i] = currentMonth;
-      }
-      monthKeysAll = Array.from(new Set(filledMonthRow.filter((x) => isMonthKey(x)))).sort();
-
-      if (monthKeysAll.length === 0) {
-        const mPreview = monthRow.slice(0, 10).join("|");
-        throw new Error(`No months found in 2D Array. Row 1: [${mPreview}]`);
-      }
-
-      const getCol = (monthKey: string, subjectUpper: string) => {
-        const subj = normHeader(subjectUpper);
-        for (let i = 0; i < filledMonthRow.length; i++) {
-          if (filledMonthRow[i] !== monthKey) continue;
-          if (header2[i] === subj || header2[i].includes(subj)) return i;
-        }
-        return -1;
-      };
-
-      for (let r = 2; r < rows.length; r++) {
-        const row = rows[r] ?? [];
-        const mhs = String(row[idxMhs] ?? "").trim();
-        if (!mhs) continue;
-
-        const name = idxName >= 0 ? String(row[idxName] ?? "").trim() : "Unknown";
-        const cls = idxClass >= 0 ? String(row[idxClass] ?? "").trim() : "";
-
-        const scores: ScoreData[] = [];
-        for (const mk of monthKeysAll) {
-          const cMath = getCol(mk, "TOÁN");
-          const cLit = getCol(mk, "NGỮ VĂN");
-          const cEng = getCol(mk, "TIẾNG ANH");
-
-          if (cMath < 0 && cLit < 0 && cEng < 0) continue;
-
-          const math = cMath >= 0 ? parseScoreValue(row[cMath]) : null;
-          const lit = cLit >= 0 ? parseScoreValue(row[cLit]) : null;
-          const eng = cEng >= 0 ? parseScoreValue(row[cEng]) : null;
-
-          if (math !== null || lit !== null || eng !== null) {
-            scores.push({ month: mk, math, lit, eng });
-          }
-        }
-        newStudents.push({ mhs, name, class: cls, scores, activeActions: [], actionsByMonth: {} });
-      }
-    }
-
-    // Common Logic: Identify what to sync
-    const supabase = createClient(supabaseUrl, serviceKey);
-
-    // 2) Load Old State
-    const { data: oldState, error: oldErr } = await supabase
-      .from("app_state")
-      .select("students_json")
-      .eq("id", dbId)
-      .maybeSingle();
-
-    if (oldErr) throw new Error(oldErr.message);
-
-    const oldStudentsRaw: Student[] = (oldState?.students_json?.students as Student[]) ?? [];
-    const oldStudents: Student[] = oldStudentsRaw.map(normalizeActionsStorage);
-    const oldMap = new Map<string, Student>();
-    oldStudents.forEach((s) => oldMap.set(String(s.mhs).trim(), s));
-
-    const oldMonths = new Set<string>();
-    for (const s of oldStudents) {
-      for (const sc of s.scores ?? []) oldMonths.add(sc.month);
-    }
-
-    let monthKeysToSync: string[] = monthKeysAll;
-    const newMonthsDetected = monthKeysAll.filter((m) => !oldMonths.has(m));
-
-    if (mode === "new_only") {
-      monthKeysToSync = newMonthsDetected;
-      // Also check for entirely new students even if no new month
-      const incomingMhsSet = new Set(newStudents.map(s => s.mhs));
-      const hasNewStudents = Array.from(incomingMhsSet).some(mhs => !oldMap.has(mhs));
-
-      if (monthKeysToSync.length === 0 && hasNewStudents) {
-        monthKeysToSync = monthKeysAll; // Force full sync if new students found
-      }
-    } else if (mode === "months") {
-      if (selectedMonths.length > 0) {
-        const selSet = new Set(selectedMonths);
-        monthKeysToSync = monthKeysAll.filter(m => selSet.has(m));
-      }
-    }
-
-    if (monthKeysToSync.length === 0) {
-      return {
-        ok: true,
-        students: oldStudents.length,
-        monthsAll: monthKeysAll,
-        monthsSynced: [],
-        newMonthsDetected,
-        dbId
-      };
-    }
-
-    // 3) MERGE LOGIC
-    // We have newStudents (parsed from source) and oldStudents (from DB)
-    // We need to merge scores based on monthKeysToSync
-
-    const mergedStudents: Student[] = newStudents.map((ns) => {
-      const old = oldMap.get(String(ns.mhs).trim());
-
-      let scoresMerged: ScoreData[] = ns.scores ?? [];
-
-      // If old student exists, we need to preserve scores of months NOT in sync list
-      if (old?.scores?.length) {
-        const replaceMonths = new Set(monthKeysToSync);
-        const keepOldScores = old.scores.filter((sc) => !replaceMonths.has(sc.month));
-        // ns.scores contains ALL months parsed from sheet usually.
-        // But we should filter ns.scores to only include sync months?
-        // Actually, if we re-parsed the sheet, ns.scores reflects the TOTAL state of the sheet for that student.
-        // If we are in "overwrite" mode for specific months, we should take new scores for those months.
-
-        // Let's take: 
-        // 1. Old scores that are NOT in sync list (preserved history not in sheet?)
-        // 2. New scores (from sheet) that ARE in sync list.
-
-        const newScoresForSync = (ns.scores || []).filter(sc => replaceMonths.has(sc.month));
-
-        scoresMerged = [...keepOldScores, ...newScoresForSync].sort((a, b) => a.month.localeCompare(b.month));
-      } else {
-        // New student entirely, take all parsed scores that are in sync list?
-        // Or take all parsed scores?
-        // If mode is new_only, monthKeysToSync might be limited.
-        // But for a new student, we probably want all their history from the sheet.
-        // Let's stick to strict sync list to be safe.
-        const replaceMonths = new Set(monthKeysToSync);
-        scoresMerged = (ns.scores || []).filter(sc => replaceMonths.has(sc.month)).sort((a, b) => a.month.localeCompare(b.month));
-      }
-
-      const oldABM = old?.actionsByMonth && typeof old.actionsByMonth === "object" ? old.actionsByMonth : {};
-      const nsABM = ns.actionsByMonth && typeof ns.actionsByMonth === "object" ? ns.actionsByMonth : {};
-      const mergedABM: Record<string, any[]> = { ...oldABM, ...nsABM };
-
-      const merged: Student = {
-        ...ns,
-        scores: scoresMerged,
-        aiReport: old?.aiReport ?? ns.aiReport,
-        actionsByMonth: mergedABM,
-      };
-
-      // Helper to determine active task month - simplified
-      const taskMonth = scoresMerged.length > 0 ? scoresMerged[scoresMerged.length - 1].month : "";
-
-      if (taskMonth && Array.isArray(merged.actionsByMonth?.[taskMonth])) {
-        merged.activeActions = merged.actionsByMonth![taskMonth];
-      } else {
-        merged.activeActions = old?.activeActions ?? ns.activeActions ?? [];
-      }
-
-      return normalizeActionsStorage(merged);
     });
+    monthKeysAll = Array.from(allMonths).sort();
 
-    // 5) Keep old students not in new sheet
-    for (const [mhs, old] of oldMap.entries()) {
-      if (!mergedStudents.some((s) => s.mhs === mhs)) mergedStudents.push(old);
+    // Debug check
+    if (monthKeysAll.length === 0) {
+      const sample = studentsData[0] ? Object.keys(studentsData[0]).slice(0, 10).join(", ") : "Empty";
+      throw new Error(`No months found in Object format. Sample keys: [${sample}]`);
     }
 
-    // 6) Save to app_state
-    const { error } = await supabase
-      .from("app_state")
-      .upsert({ id: dbId, students_json: { students: mergedStudents } }, { onConflict: "id" });
+    // Parse Students
+    newStudents = studentsData.map((st: any) => {
+      const mhs = String(st.MHS || st["MÃ HS"] || "").trim();
+      const name = String(st["HỌ VÀ TÊN"] || st.NAME || "").trim();
+      const cls = String(st["LỚP"] || st.CLASS || "").trim();
 
-    if (error) throw new Error(error.message);
+      if (!mhs) return null;
 
+      const scores: ScoreData[] = [];
+      monthKeysAll.forEach(m => {
+        // Try variations: "2025-08 TOAN" or "2025-08 TOÁN"
+        // RegExp to find key starting with m and containing subject
+        // Simple strict check first for performance
+        const mathVal = parseScoreValue(st[`${m} TOÁN`] ?? st[`${m} TOAN`]);
+        const litVal = parseScoreValue(st[`${m} NGỮ VĂN`] ?? st[`${m} VAN`] ?? st[`${m} NGU VAN`]);
+        const engVal = parseScoreValue(st[`${m} TIẾNG ANH`] ?? st[`${m} ANH`] ?? st[`${m} TIENG ANH`]);
+
+        if (mathVal !== null || litVal !== null || engVal !== null) {
+          scores.push({ month: m, math: mathVal, lit: litVal, eng: engVal });
+        }
+      });
+
+      return {
+        mhs,
+        name: name || "Unknown",
+        class: cls,
+        scores,
+        activeActions: [],
+        actionsByMonth: {}
+      } as Student;
+    }).filter((x): x is Student => x !== null);
+
+  } else {
+    // --- 2D ARRAY FORMAT (Standard / Old Script) ---
+    const rows = rawData;
+    const monthRow = rows[0] ?? [];
+    const headerRow = rows[1] ?? [];
+    const header2 = headerRow.map(normHeader);
+
+    const idxMhs = header2.indexOf("MHS");
+    const idxName = header2.findIndex(h => h.includes("HỌ") && h.includes("TÊN"));
+    const idxClass = header2.findIndex(h => h === "LỚP" || h === "LOP");
+
+    if (idxMhs < 0) {
+      const hPreview = headerRow.slice(0, 10).join("|");
+      throw new Error(`Missing column MHS in 2D array. Header: ${hPreview}`);
+    }
+
+    const filledMonthRow: string[] = [];
+    let currentMonth = "";
+    for (let i = 0; i < monthRow.length; i++) {
+      const val = monthRow[i];
+      const parsed = parseMonthValue(val);
+      // Only take strict YYYY-MM
+      if (parsed && /^\d{4}-\d{2}$/.test(parsed)) currentMonth = parsed;
+      filledMonthRow[i] = currentMonth;
+    }
+    monthKeysAll = Array.from(new Set(filledMonthRow.filter((x) => isMonthKey(x)))).sort();
+
+    if (monthKeysAll.length === 0) {
+      const mPreview = monthRow.slice(0, 10).join("|");
+      throw new Error(`No months found in 2D Array. Row 1: [${mPreview}]`);
+    }
+
+    const getCol = (monthKey: string, subjectUpper: string) => {
+      const subj = normHeader(subjectUpper);
+      for (let i = 0; i < filledMonthRow.length; i++) {
+        if (filledMonthRow[i] !== monthKey) continue;
+        if (header2[i] === subj || header2[i].includes(subj)) return i;
+      }
+      return -1;
+    };
+
+    for (let r = 2; r < rows.length; r++) {
+      const row = rows[r] ?? [];
+      const mhs = String(row[idxMhs] ?? "").trim();
+      if (!mhs) continue;
+
+      const name = idxName >= 0 ? String(row[idxName] ?? "").trim() : "Unknown";
+      const cls = idxClass >= 0 ? String(row[idxClass] ?? "").trim() : "";
+
+      const scores: ScoreData[] = [];
+      for (const mk of monthKeysAll) {
+        const cMath = getCol(mk, "TOÁN");
+        const cLit = getCol(mk, "NGỮ VĂN");
+        const cEng = getCol(mk, "TIẾNG ANH");
+
+        if (cMath < 0 && cLit < 0 && cEng < 0) continue;
+
+        const math = cMath >= 0 ? parseScoreValue(row[cMath]) : null;
+        const lit = cLit >= 0 ? parseScoreValue(row[cLit]) : null;
+        const eng = cEng >= 0 ? parseScoreValue(row[cEng]) : null;
+
+        if (math !== null || lit !== null || eng !== null) {
+          scores.push({ month: mk, math, lit, eng });
+        }
+      }
+      newStudents.push({ mhs, name, class: cls, scores, activeActions: [], actionsByMonth: {} });
+    }
+  }
+
+  // Common Logic: Identify what to sync
+  const supabase = createClient(supabaseUrl, serviceKey);
+
+  // 2) Load Old State
+  const { data: oldState, error: oldErr } = await supabase
+    .from("app_state")
+    .select("students_json")
+    .eq("id", dbId)
+    .maybeSingle();
+
+  if (oldErr) throw new Error(oldErr.message);
+
+  const oldStudentsRaw: Student[] = (oldState?.students_json?.students as Student[]) ?? [];
+  const oldStudents: Student[] = oldStudentsRaw.map(normalizeActionsStorage);
+  const oldMap = new Map<string, Student>();
+  oldStudents.forEach((s) => oldMap.set(String(s.mhs).trim(), s));
+
+  const oldMonths = new Set<string>();
+  for (const s of oldStudents) {
+    for (const sc of s.scores ?? []) oldMonths.add(sc.month);
+  }
+
+  let monthKeysToSync: string[] = monthKeysAll;
+  const newMonthsDetected = monthKeysAll.filter((m) => !oldMonths.has(m));
+
+  if (mode === "new_only") {
+    monthKeysToSync = newMonthsDetected;
+    // Also check for entirely new students even if no new month
+    const incomingMhsSet = new Set(newStudents.map(s => s.mhs));
+    const hasNewStudents = Array.from(incomingMhsSet).some(mhs => !oldMap.has(mhs));
+
+    if (monthKeysToSync.length === 0 && hasNewStudents) {
+      monthKeysToSync = monthKeysAll; // Force full sync if new students found
+    }
+  } else if (mode === "months") {
+    if (selectedMonths.length > 0) {
+      const selSet = new Set(selectedMonths);
+      monthKeysToSync = monthKeysAll.filter(m => selSet.has(m));
+    }
+  }
+
+  if (monthKeysToSync.length === 0) {
     return {
       ok: true,
-      mode,
-      selectedMonths,
+      students: oldStudents.length,
       monthsAll: monthKeysAll,
-      monthsSynced: monthKeysToSync,
+      monthsSynced: [],
       newMonthsDetected,
-      students: mergedStudents.length,
-      sheetName,
       dbId
     };
   }
 
-  export async function POST(req: Request) {
-    const session = await getSession();
-    if (!session || session.role !== "ADMIN") {
-      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  // 3) MERGE LOGIC
+  // We have newStudents (parsed from source) and oldStudents (from DB)
+  // We need to merge scores based on monthKeysToSync
+
+  const mergedStudents: Student[] = newStudents.map((ns) => {
+    const old = oldMap.get(String(ns.mhs).trim());
+
+    let scoresMerged: ScoreData[] = ns.scores ?? [];
+
+    // If old student exists, we need to preserve scores of months NOT in sync list
+    if (old?.scores?.length) {
+      const replaceMonths = new Set(monthKeysToSync);
+      const keepOldScores = old.scores.filter((sc) => !replaceMonths.has(sc.month));
+      // ns.scores contains ALL months parsed from sheet usually.
+      // But we should filter ns.scores to only include sync months?
+      // Actually, if we re-parsed the sheet, ns.scores reflects the TOTAL state of the sheet for that student.
+      // If we are in "overwrite" mode for specific months, we should take new scores for those months.
+
+      // Let's take: 
+      // 1. Old scores that are NOT in sync list (preserved history not in sheet?)
+      // 2. New scores (from sheet) that ARE in sync list.
+
+      const newScoresForSync = (ns.scores || []).filter(sc => replaceMonths.has(sc.month));
+
+      scoresMerged = [...keepOldScores, ...newScoresForSync].sort((a, b) => a.month.localeCompare(b.month));
+    } else {
+      // New student entirely, take all parsed scores that are in sync list?
+      // Or take all parsed scores?
+      // If mode is new_only, monthKeysToSync might be limited.
+      // But for a new student, we probably want all their history from the sheet.
+      // Let's stick to strict sync list to be safe.
+      const replaceMonths = new Set(monthKeysToSync);
+      scoresMerged = (ns.scores || []).filter(sc => replaceMonths.has(sc.month)).sort((a, b) => a.month.localeCompare(b.month));
     }
 
-    let body: any = {};
-    try { body = await req.json(); } catch { }
+    const oldABM = old?.actionsByMonth && typeof old.actionsByMonth === "object" ? old.actionsByMonth : {};
+    const nsABM = ns.actionsByMonth && typeof ns.actionsByMonth === "object" ? ns.actionsByMonth : {};
+    const mergedABM: Record<string, any[]> = { ...oldABM, ...nsABM };
 
-    const mode: SyncMode = body?.mode === "months" ? "months" : "new_only";
-    const selectedMonths: string[] = Array.isArray(body?.selectedMonths) ? body.selectedMonths : [];
-    const sheetName = body?.sheetName || "DIEM_2526";
+    const merged: Student = {
+      ...ns,
+      scores: scoresMerged,
+      aiReport: old?.aiReport ?? ns.aiReport,
+      actionsByMonth: mergedABM,
+    };
 
-    try {
-      const result = await doSyncFromSheet({ mode, selectedMonths, sheetName });
-      return NextResponse.json(result);
-    } catch (e: any) {
-      return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
+    // Helper to determine active task month - simplified
+    const taskMonth = scoresMerged.length > 0 ? scoresMerged[scoresMerged.length - 1].month : "";
+
+    if (taskMonth && Array.isArray(merged.actionsByMonth?.[taskMonth])) {
+      merged.activeActions = merged.actionsByMonth![taskMonth];
+    } else {
+      merged.activeActions = old?.activeActions ?? ns.activeActions ?? [];
     }
+
+    return normalizeActionsStorage(merged);
+  });
+
+  // 5) Keep old students not in new sheet
+  for (const [mhs, old] of oldMap.entries()) {
+    if (!mergedStudents.some((s) => s.mhs === mhs)) mergedStudents.push(old);
   }
 
-  export async function GET(req: Request) {
-    const url = new URL(req.url);
-    const secret = url.searchParams.get("secret");
+  // 6) Save to app_state
+  const { error } = await supabase
+    .from("app_state")
+    .upsert({ id: dbId, students_json: { students: mergedStudents } }, { onConflict: "id" });
 
-    if (!process.env.SYNC_SECRET || secret !== process.env.SYNC_SECRET) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
+  if (error) throw new Error(error.message);
 
-    try {
-      const result = await doSyncFromSheet({ mode: "new_only", selectedMonths: [] });
-      const { ok: _ok, ...rest } = result as any;
-      return NextResponse.json({ ok: true, mode: "cron", ...rest });
-    } catch (e: any) {
-      return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
-    }
+  return {
+    ok: true,
+    mode,
+    selectedMonths,
+    monthsAll: monthKeysAll,
+    monthsSynced: monthKeysToSync,
+    newMonthsDetected,
+    students: mergedStudents.length,
+    sheetName,
+    dbId
+  };
+}
+
+export async function POST(req: Request) {
+  const session = await getSession();
+  if (!session || session.role !== "ADMIN") {
+    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
+
+  let body: any = {};
+  try { body = await req.json(); } catch { }
+
+  const mode: SyncMode = body?.mode === "months" ? "months" : "new_only";
+  const selectedMonths: string[] = Array.isArray(body?.selectedMonths) ? body.selectedMonths : [];
+  const sheetName = body?.sheetName || "DIEM_2526";
+
+  try {
+    const result = await doSyncFromSheet({ mode, selectedMonths, sheetName });
+    return NextResponse.json(result);
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
+  }
+}
+
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const secret = url.searchParams.get("secret");
+
+  if (!process.env.SYNC_SECRET || secret !== process.env.SYNC_SECRET) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const result = await doSyncFromSheet({ mode: "new_only", selectedMonths: [] });
+    const { ok: _ok, ...rest } = result as any;
+    return NextResponse.json({ ok: true, mode: "cron", ...rest });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || "Sync failed" }, { status: 500 });
+  }
+}
