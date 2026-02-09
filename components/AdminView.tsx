@@ -975,14 +975,30 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
         <div className="p-4 md:p-8 space-y-8 animate-in fade-in">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
                 <h2 className="text-2xl font-bold text-slate-800">Báo cáo & Thống kê</h2>
-                <select
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(e.target.value)}
-                    className="border border-slate-200 rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm"
-                >
-                    {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
-                    {availableMonths.length === 0 && <option value={isoMonth(new Date())}>{isoMonth(new Date())}</option>}
-                </select>
+                <div className="flex flex-col sm:flex-row gap-3">
+                    {/* Grade Filter */}
+                    <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200">
+                        {(["ALL", "K6", "K7", "K8", "K9", "K10", "K11", "K12"] as const).map(g => (
+                            <button
+                                key={g}
+                                onClick={() => setSelectedGrade(g)}
+                                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${selectedGrade === g ? "bg-blue-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50"}`}
+                            >
+                                {g === "ALL" ? "ALL" : g.replace("K", "K")}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Month Selector */}
+                    <select
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(e.target.value)}
+                        className="border border-slate-200 rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm"
+                    >
+                        {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                        {availableMonths.length === 0 && <option value={isoMonth(new Date())}>{isoMonth(new Date())}</option>}
+                    </select>
+                </div>
             </div>
 
             {/* ==== Section 1: Pure Academic Risk Report (Score-only) ==== */}

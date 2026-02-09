@@ -176,7 +176,13 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   // 1) Fetch từ Apps Script
   const rows = await fetchFromAppsScript(sheetName);
 
-  if (rows.length < 3) throw new Error("Sheet must have 2 header rows + data rows");
+  if (!Array.isArray(rows) || rows.length < 3) {
+    if (rows.length === 0) return { students: 0, monthsAll: [], monthsSynced: [] };
+    if (typeof rows[0] === 'object' && !Array.isArray(rows[0])) {
+      throw new Error("Data format mismatch: Expected 2D Array, got Array of Objects. Please verify Apps Script version.");
+    }
+    throw new Error("Sheet must have 2 header rows + data rows");
+  }
 
   const monthRow = rows[0] ?? [];
   const headerRow = rows[1] ?? [];
@@ -187,11 +193,11 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   const idxClass = header2.findIndex(h => h === "LỚP" || h === "LOP");
 
   if (idxMhs < 0) {
-    const hPreview = headerRow.slice(0, 15).map((x) => String(x ?? "")).join(" | ");
+    const hPreview = headerRow.slice(0, 15).map((x: any) => String(x ?? "")).join(" | ");
     throw new Error(`Missing column: MHS. Header preview: ${hPreview}`);
   }
 
-  // Forward fill month row để xử lý ô gộp + parse ISO dates
+  // Forward fill month row
   const filledMonthRow: string[] = [];
   let currentMonth = "";
   for (let i = 0; i < monthRow.length; i++) {
@@ -208,10 +214,9 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     throw new Error('No month_key detected on row 1. Expected values like "2025-08".');
   }
 
-
   const supabase = createClient(supabaseUrl, serviceKey);
 
-  // 2) Load dữ liệu cũ
+  // 2) Load dữ liệu cũ từ app_state
   const { data: oldState, error: oldErr } = await supabase
     .from("app_state")
     .select("students_json")
@@ -259,7 +264,18 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     }
   }
 
-  // Hàm tìm cột môn theo tháng - có forward fill
+  if (monthKeysToSync.length === 0) {
+    return {
+      ok: true,
+      students: oldStudents.length,
+      monthsAll: monthKeysAll,
+      monthsSynced: [],
+      newMonthsDetected,
+      dbId
+    };
+  }
+
+  // Hàm tìm cột môn theo tháng
   const getCol = (monthKey: string, subjectUpper: string) => {
     const subj = normHeader(subjectUpper);
     for (let i = 0; i < filledMonthRow.length; i++) {
@@ -269,7 +285,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     return -1;
   };
 
-  // 3) Build students
+  // 3) Build students from Sheet
   const studentMap = new Map<string, Student>();
 
   for (let r = 2; r < rows.length; r++) {
@@ -333,19 +349,24 @@ async function doSyncFromSheet(opts?: SyncOpts) {
       actionsByMonth: mergedABM,
     };
 
-    const taskMonth = getTaskMonthFromScores(merged.scores);
-    if (Array.isArray(merged.actionsByMonth?.[taskMonth])) merged.activeActions = merged.actionsByMonth![taskMonth];
-    else merged.activeActions = old?.activeActions ?? ns.activeActions ?? [];
+    // Helper to determine active task month - simplified
+    const taskMonth = scoresMerged.length > 0 ? scoresMerged[scoresMerged.length - 1].month : "";
+
+    if (taskMonth && Array.isArray(merged.actionsByMonth?.[taskMonth])) {
+      merged.activeActions = merged.actionsByMonth![taskMonth];
+    } else {
+      merged.activeActions = old?.activeActions ?? ns.activeActions ?? [];
+    }
 
     return normalizeActionsStorage(merged);
   });
 
-  // 5) Giữ học sinh cũ không có trong sheet mới
+  // 5) Keep old students not in new sheet
   for (const [mhs, old] of oldMap.entries()) {
     if (!mergedStudents.some((s) => s.mhs === mhs)) mergedStudents.push(old);
   }
 
-  // 6) Save
+  // 6) Save to app_state
   const { error } = await supabase
     .from("app_state")
     .upsert({ id: dbId, students_json: { students: mergedStudents } }, { onConflict: "id" });
