@@ -666,65 +666,29 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
         });
     }, [students, selectedGrade]);
 
-    // 1. Score Trends Data (Breakdown by Grade)
+    // 1. Score Trends Data (Breakdown by Month)
     const scoreTrendData = useMemo(() => {
-        const monthMap = new Map<string, {
-            all: number[],
-            k6: number[], k7: number[], k8: number[], k9: number[],
-            k10: number[], k11: number[], k12: number[]
-        }>();
-        const allMonths = new Set<string>();
-
-        students.forEach(s => {
-            const cls = (s.class || "").trim().toUpperCase();
-            let grade = "other";
-            if (cls.startsWith("6")) grade = "k6";
-            else if (cls.startsWith("7")) grade = "k7";
-            else if (cls.startsWith("8")) grade = "k8";
-            else if (cls.startsWith("9")) grade = "k9";
-            else if (cls.startsWith("10")) grade = "k10";
-            else if (cls.startsWith("11")) grade = "k11";
-            else if (cls.startsWith("12")) grade = "k12";
-
+        const monthMap = new Map<string, number[]>();
+        filteredStudents.forEach(s => {
             s.scores.forEach(score => {
                 const m = score.month;
                 if (!isMonthKey(m)) return;
-                allMonths.add(m);
-                if (!monthMap.has(m)) monthMap.set(m, { all: [], k6: [], k7: [], k8: [], k9: [], k10: [], k11: [], k12: [] });
-
-                const entry = monthMap.get(m)!;
                 const vals = [score.math, score.lit, score.eng].filter(v => typeof v === "number" && v !== null) as number[];
                 if (vals.length) {
                     const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-                    entry.all.push(avg);
-                    if (grade === "k6") entry.k6.push(avg);
-                    if (grade === "k7") entry.k7.push(avg);
-                    if (grade === "k8") entry.k8.push(avg);
-                    if (grade === "k9") entry.k9.push(avg);
-                    if (grade === "k10") entry.k10.push(avg);
-                    if (grade === "k11") entry.k11.push(avg);
-                    if (grade === "k12") entry.k12.push(avg);
+                    if (!monthMap.has(m)) monthMap.set(m, []);
+                    monthMap.get(m)!.push(avg);
                 }
             });
         });
 
-        const avg = (arr: number[]) => arr.length ? parseFloat((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(2)) : null;
-
-        return Array.from(allMonths).sort().map(month => {
-            const data = monthMap.get(month)!;
-            return {
-                month,
-                all: avg(data.all),
-                k6: avg(data.k6),
-                k7: avg(data.k7),
-                k8: avg(data.k8),
-                k9: avg(data.k9),
-                k10: avg(data.k10),
-                k11: avg(data.k11),
-                k12: avg(data.k12),
-            };
+        return Array.from(monthMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([month, data]) => {
+            const avgScore = data.length ? parseFloat((data.reduce((a, b) => a + b, 0) / data.length).toFixed(2)) : 0;
+            const maxScore = data.length ? Math.max(...data) : 0;
+            const minScore = data.length ? Math.min(...data) : 0;
+            return { month, avgScore, maxScore, minScore };
         });
-    }, [students]);
+    }, [filteredStudents]);
 
     // 2. Class Ticks Data
     const availableMonths = useMemo(() => {
@@ -750,7 +714,7 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
         const risks: { student: Student, avgScore: number, level: RiskLevel, reasons: string[] }[] = [];
         const monthKey = selectedMonth;
 
-        students.forEach(s => {
+        filteredStudents.forEach(s => {
             const scoreObj = s.scores.find(sc => sc.month === monthKey);
             if (!scoreObj) return;
 
@@ -805,7 +769,7 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
         // Sort by severity
         const order: Record<RiskLevel, number> = { DANGER: 0, WARNING: 1, NOTICE: 2 };
         return risks.sort((a, b) => order[a.level] - order[b.level] || a.avgScore - b.avgScore);
-    }, [students, selectedMonth]);
+    }, [filteredStudents, selectedMonth]);
 
     // =====================================================
     // NEW: Value-Added Analysis (Top Improvers + Class Momentum)
@@ -814,7 +778,7 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
         const improvers: { student: Student, delta: number, prevAvg: number, currAvg: number }[] = [];
         const classMomentum = new Map<string, { totalDelta: number, count: number }>();
 
-        students.forEach(s => {
+        filteredStudents.forEach(s => {
             const idx = s.scores.findIndex(sc => sc.month === selectedMonth);
             if (idx <= 0) return;
 
@@ -844,7 +808,7 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
             .sort((a, b) => b.avgDelta - a.avgDelta);
 
         return { topImprovers, classData };
-    }, [students, selectedMonth]);
+    }, [filteredStudents, selectedMonth]);
 
     // =====================================================
     // NEW: Subject Heatmap (Score by Subject x Class)
@@ -852,7 +816,7 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
     const heatmapData = useMemo(() => {
         const classSubjectMap = new Map<string, { math: number[], lit: number[], eng: number[] }>();
 
-        students.forEach(s => {
+        filteredStudents.forEach(s => {
             const scoreObj = s.scores.find(sc => sc.month === selectedMonth);
             if (!scoreObj) return;
 
@@ -887,12 +851,12 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
         });
 
         return { classes, grid };
-    }, [students, selectedMonth]);
+    }, [filteredStudents, selectedMonth]);
 
     const classTickData = useMemo(() => {
         const classMap = new Map<string, { totalTicks: number, studentCount: number }>();
 
-        students.forEach(s => {
+        filteredStudents.forEach(s => {
             const cls = s.class || "Unknown";
             if (!classMap.has(cls)) classMap.set(cls, { totalTicks: 0, studentCount: 0 });
 
@@ -910,14 +874,14 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
             totalTicks: data.totalTicks,
             avgTicks: parseFloat((data.totalTicks / data.studentCount).toFixed(1)),
         })).sort((a, b) => b.avgTicks - a.avgTicks);
-    }, [students, selectedMonth]);
+    }, [filteredStudents, selectedMonth]);
 
     // 3. Early Warning System (Data Calc)
     const riskData = useMemo(() => {
         const risks: { student: Student, reason: string, type: "ACADEMIC" | "ENGAGEMENT" }[] = [];
         const monthKey = selectedMonth;
 
-        students.forEach(s => {
+        filteredStudents.forEach(s => {
             // Find score for selected month
             const currentScoreObj = s.scores.find(sc => sc.month === monthKey);
 
@@ -952,11 +916,11 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
             }
         });
         return risks;
-    }, [students, selectedMonth]);
+    }, [filteredStudents, selectedMonth]);
 
     // 4. Habit Matrix Data
     const scatterData = useMemo(() => {
-        return students.map(s => {
+        return filteredStudents.map(s => {
             const ticksCount = countTicksForMonth(s, selectedMonth);
 
             const scoreObj = s.scores.find(sc => sc.month === selectedMonth);
@@ -969,7 +933,7 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
             if (avg === 0 && ticksCount === 0) return null; // Skip empty data
             return { x: ticksCount, y: parseFloat(avg.toFixed(1)), name: s.name, class: s.class, mhs: s.mhs };
         }).filter(Boolean);
-    }, [students, selectedMonth]);
+    }, [filteredStudents, selectedMonth]);
 
     return (
         <div className="p-4 md:p-8 space-y-8 animate-in fade-in">
