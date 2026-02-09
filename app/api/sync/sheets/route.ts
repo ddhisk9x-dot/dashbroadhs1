@@ -99,8 +99,16 @@ async function fetchFromAppsScript(sheetName: string): Promise<any[][]> {
   if (!resp.ok) throw new Error(`Apps Script fetch failed: ${resp.status}`);
 
   const json = await resp.json();
-  if (!json.ok) throw new Error(json.error || "Apps Script returned error");
-  if (!Array.isArray(json.data)) throw new Error("Apps Script did not return data array");
+  if (json.error) throw new Error(json.error); // Old logic: only throw if error prop exists
+  // if (!json.ok) throw new Error(json.error || "Apps Script returned error"); // This was causing sync to fail
+
+  if (!Array.isArray(json.data)) {
+    // Fallback: If json is directly the array? No, Apps Script returns {data: []}
+    // Check if json.data exists
+    if (json.data === undefined) throw new Error("Apps Script response format unknown");
+    // If json.data is not array?
+    throw new Error("Apps Script.data is not an array");
+  }
 
   return json.data;
 }
