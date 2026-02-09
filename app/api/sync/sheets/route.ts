@@ -174,49 +174,135 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   }
 
   // 1) Fetch từ Apps Script
-  const rows = await fetchFromAppsScript(sheetName);
+  const rawData = await fetchFromAppsScript(sheetName);
 
-  if (!Array.isArray(rows) || rows.length < 3) {
-    if (rows.length === 0) return { students: 0, monthsAll: [], monthsSynced: [] };
-    if (typeof rows[0] === 'object' && !Array.isArray(rows[0])) {
-      throw new Error("Data format mismatch: Expected 2D Array, got Array of Objects. Please verify Apps Script version.");
+  if (!Array.isArray(rawData) || rawData.length === 0) {
+    // Empty sheet logic
+    return { students: 0, monthsAll: [], monthsSynced: [], dbId };
+  }
+
+  // Determine Data Format
+  let isObjectFormat = false;
+  if (rawData.length > 0 && typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
+    isObjectFormat = true;
+  } else if (rawData.length < 3) {
+    throw new Error("Sheet needs header rows if strictly 2D array");
+  }
+
+  let monthKeysAll: string[] = [];
+  let newStudents: Student[] = [];
+
+  // ==========================================
+  // PARSING STRATEGY
+  // ==========================================
+  if (isObjectFormat) {
+    // --- OBJECT FORMAT (User's Current Script) ---
+    const studentsData = rawData;
+
+    const allMonths = new Set<string>();
+    // Scan first few rows to find month keys "YYYY-MM SUBJECT"
+    studentsData.slice(0, 10).forEach((st: any) => {
+      Object.keys(st).forEach(k => {
+        const parts = k.trim().split(" ");
+        const potentialMonth = parts[0];
+        if (isMonthKey(potentialMonth)) allMonths.add(potentialMonth);
+      });
+    });
+    monthKeysAll = Array.from(allMonths).sort();
+
+    // Parse Students
+    newStudents = studentsData.map((st: any) => {
+      const mhs = String(st.MHS || st["MÃ HS"] || "").trim();
+      const name = String(st["HỌ VÀ TÊN"] || st.NAME || "").trim();
+      const cls = String(st["LỚP"] || st.CLASS || "").trim();
+
+      if (!mhs) return null;
+
+      const scores: ScoreData[] = [];
+      monthKeysAll.forEach(m => {
+        // Try variations
+        const mathVal = parseScoreValue(st[`${m} TOÁN`] ?? st[`${m} TOAN`]);
+        const litVal = parseScoreValue(st[`${m} NGỮ VĂN`] ?? st[`${m} VAN`] ?? st[`${m} NGU VAN`]);
+        const engVal = parseScoreValue(st[`${m} TIẾNG ANH`] ?? st[`${m} ANH`] ?? st[`${m} TIENG ANH`]);
+
+        if (mathVal !== null || litVal !== null || engVal !== null) {
+          scores.push({ month: m, math: mathVal, lit: litVal, eng: engVal });
+        }
+      });
+
+      return {
+        mhs,
+        name: name || "Unknown",
+        class: cls,
+        scores,
+        activeActions: [],
+        actionsByMonth: {}
+      } as Student;
+    }).filter((x): x is Student => x !== null);
+
+  } else {
+    // --- 2D ARRAY FORMAT (Standard / Old Script) ---
+    const rows = rawData;
+    const monthRow = rows[0] ?? [];
+    const headerRow = rows[1] ?? [];
+    const header2 = headerRow.map(normHeader);
+
+    const idxMhs = header2.indexOf("MHS");
+    const idxName = header2.findIndex(h => h.includes("HỌ") && h.includes("TÊN"));
+    const idxClass = header2.findIndex(h => h === "LỚP" || h === "LOP");
+
+    if (idxMhs < 0) throw new Error("Missing column MHS in 2D array");
+
+    const filledMonthRow: string[] = [];
+    let currentMonth = "";
+    for (let i = 0; i < monthRow.length; i++) {
+      const parsed = parseMonthValue(monthRow[i]);
+      if (parsed && isMonthKey(parsed)) currentMonth = parsed;
+      filledMonthRow[i] = currentMonth;
     }
-    throw new Error("Sheet must have 2 header rows + data rows");
-  }
+    monthKeysAll = Array.from(new Set(filledMonthRow.filter((x) => isMonthKey(x)))).sort();
 
-  const monthRow = rows[0] ?? [];
-  const headerRow = rows[1] ?? [];
-  const header2 = headerRow.map(normHeader);
+    const getCol = (monthKey: string, subjectUpper: string) => {
+      const subj = normHeader(subjectUpper);
+      for (let i = 0; i < filledMonthRow.length; i++) {
+        if (filledMonthRow[i] !== monthKey) continue;
+        if (header2[i] === subj || header2[i].includes(subj)) return i;
+      }
+      return -1;
+    };
 
-  const idxMhs = header2.indexOf("MHS");
-  const idxName = header2.findIndex(h => h.includes("HỌ") && h.includes("TÊN"));
-  const idxClass = header2.findIndex(h => h === "LỚP" || h === "LOP");
+    for (let r = 2; r < rows.length; r++) {
+      const row = rows[r] ?? [];
+      const mhs = String(row[idxMhs] ?? "").trim();
+      if (!mhs) continue;
 
-  if (idxMhs < 0) {
-    const hPreview = headerRow.slice(0, 15).map((x: any) => String(x ?? "")).join(" | ");
-    throw new Error(`Missing column: MHS. Header preview: ${hPreview}`);
-  }
+      const name = idxName >= 0 ? String(row[idxName] ?? "").trim() : "Unknown";
+      const cls = idxClass >= 0 ? String(row[idxClass] ?? "").trim() : "";
 
-  // Forward fill month row
-  const filledMonthRow: string[] = [];
-  let currentMonth = "";
-  for (let i = 0; i < monthRow.length; i++) {
-    const parsed = parseMonthValue(monthRow[i]);
-    if (parsed && isMonthKey(parsed)) {
-      currentMonth = parsed;
+      const scores: ScoreData[] = [];
+      for (const mk of monthKeysAll) {
+        const cMath = getCol(mk, "TOÁN");
+        const cLit = getCol(mk, "NGỮ VĂN");
+        const cEng = getCol(mk, "TIẾNG ANH");
+
+        if (cMath < 0 && cLit < 0 && cEng < 0) continue;
+
+        const math = cMath >= 0 ? parseScoreValue(row[cMath]) : null;
+        const lit = cLit >= 0 ? parseScoreValue(row[cLit]) : null;
+        const eng = cEng >= 0 ? parseScoreValue(row[cEng]) : null;
+
+        if (math !== null || lit !== null || eng !== null) {
+          scores.push({ month: mk, math, lit, eng });
+        }
+      }
+      newStudents.push({ mhs, name, class: cls, scores, activeActions: [], actionsByMonth: {} });
     }
-    filledMonthRow[i] = currentMonth;
   }
 
-  const monthKeysAll = Array.from(new Set(filledMonthRow.filter((x) => isMonthKey(x)))).sort();
-
-  if (monthKeysAll.length === 0) {
-    throw new Error('No month_key detected on row 1. Expected values like "2025-08".');
-  }
-
+  // Common Logic: Identify what to sync
   const supabase = createClient(supabaseUrl, serviceKey);
 
-  // 2) Load dữ liệu cũ từ app_state
+  // 2) Load Old State
   const { data: oldState, error: oldErr } = await supabase
     .from("app_state")
     .select("students_json")
@@ -227,7 +313,6 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
   const oldStudentsRaw: Student[] = (oldState?.students_json?.students as Student[]) ?? [];
   const oldStudents: Student[] = oldStudentsRaw.map(normalizeActionsStorage);
-
   const oldMap = new Map<string, Student>();
   oldStudents.forEach((s) => oldMap.set(String(s.mhs).trim(), s));
 
@@ -236,31 +321,22 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     for (const sc of s.scores ?? []) oldMonths.add(sc.month);
   }
 
+  let monthKeysToSync: string[] = monthKeysAll;
   const newMonthsDetected = monthKeysAll.filter((m) => !oldMonths.has(m));
 
-  let monthKeysToSync: string[] = monthKeysAll;
-
   if (mode === "new_only") {
-    monthKeysToSync = monthKeysAll.filter((m) => !oldMonths.has(m));
-
-    let hasNewStudents = false;
-    for (let r = 2; r < rows.length; r++) {
-      const row = rows[r] ?? [];
-      const mhs = String(row[idxMhs] ?? "").trim();
-      if (!mhs) continue;
-      if (!oldMap.has(mhs)) {
-        hasNewStudents = true;
-        break;
-      }
-    }
+    monthKeysToSync = newMonthsDetected;
+    // Also check for entirely new students even if no new month
+    const incomingMhsSet = new Set(newStudents.map(s => s.mhs));
+    const hasNewStudents = Array.from(incomingMhsSet).some(mhs => !oldMap.has(mhs));
 
     if (monthKeysToSync.length === 0 && hasNewStudents) {
-      monthKeysToSync = monthKeysAll;
+      monthKeysToSync = monthKeysAll; // Force full sync if new students found
     }
   } else if (mode === "months") {
     if (selectedMonths.length > 0) {
       const selSet = new Set(selectedMonths);
-      monthKeysToSync = monthKeysAll.filter((m) => selSet.has(m));
+      monthKeysToSync = monthKeysAll.filter(m => selSet.has(m));
     }
   }
 
@@ -275,67 +351,39 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     };
   }
 
-  // Hàm tìm cột môn theo tháng
-  const getCol = (monthKey: string, subjectUpper: string) => {
-    const subj = normHeader(subjectUpper);
-    for (let i = 0; i < filledMonthRow.length; i++) {
-      if (filledMonthRow[i] !== monthKey) continue;
-      if (header2[i] === subj || header2[i].includes(subj)) return i;
-    }
-    return -1;
-  };
+  // 3) MERGE LOGIC
+  // We have newStudents (parsed from source) and oldStudents (from DB)
+  // We need to merge scores based on monthKeysToSync
 
-  // 3) Build students from Sheet
-  const studentMap = new Map<string, Student>();
-
-  for (let r = 2; r < rows.length; r++) {
-    const row = rows[r] ?? [];
-    const mhs = String(row[idxMhs] ?? "").trim();
-    if (!mhs) continue;
-
-    const name = idxName >= 0 ? String(row[idxName] ?? "").trim() || "Unknown" : "Unknown";
-    const className = idxClass >= 0 ? String(row[idxClass] ?? "").trim() : "";
-
-    let st = studentMap.get(mhs);
-    if (!st) {
-      st = { mhs, name, class: className, scores: [], activeActions: [], actionsByMonth: {} };
-      studentMap.set(mhs, st);
-    } else {
-      st.name = name;
-      st.class = className;
-    }
-
-    for (const mk of monthKeysToSync) {
-      const cMath = getCol(mk, "TOÁN");
-      const cLit = getCol(mk, "NGỮ VĂN");
-      const cEng = getCol(mk, "TIẾNG ANH");
-
-      if (cMath < 0 && cLit < 0 && cEng < 0) continue;
-
-      const math = cMath >= 0 ? parseScoreValue(row[cMath]) : null;
-      const lit = cLit >= 0 ? parseScoreValue(row[cLit]) : null;
-      const eng = cEng >= 0 ? parseScoreValue(row[cEng]) : null;
-
-      if (math === null && lit === null && eng === null) continue;
-
-      const entry: ScoreData = { month: mk, math, lit, eng };
-      const exist = (st.scores || []).findIndex((s) => s.month === mk);
-      if (exist >= 0) st.scores[exist] = entry;
-      else st.scores.push(entry);
-    }
-  }
-
-  const newStudents = Array.from(studentMap.values()).map(normalizeActionsStorage);
-
-  // 4) Merge
   const mergedStudents: Student[] = newStudents.map((ns) => {
     const old = oldMap.get(String(ns.mhs).trim());
 
     let scoresMerged: ScoreData[] = ns.scores ?? [];
+
+    // If old student exists, we need to preserve scores of months NOT in sync list
     if (old?.scores?.length) {
       const replaceMonths = new Set(monthKeysToSync);
       const keepOldScores = old.scores.filter((sc) => !replaceMonths.has(sc.month));
-      scoresMerged = [...keepOldScores, ...(ns.scores ?? [])].sort((a, b) => a.month.localeCompare(b.month));
+      // ns.scores contains ALL months parsed from sheet usually.
+      // But we should filter ns.scores to only include sync months?
+      // Actually, if we re-parsed the sheet, ns.scores reflects the TOTAL state of the sheet for that student.
+      // If we are in "overwrite" mode for specific months, we should take new scores for those months.
+
+      // Let's take: 
+      // 1. Old scores that are NOT in sync list (preserved history not in sheet?)
+      // 2. New scores (from sheet) that ARE in sync list.
+
+      const newScoresForSync = (ns.scores || []).filter(sc => replaceMonths.has(sc.month));
+
+      scoresMerged = [...keepOldScores, ...newScoresForSync].sort((a, b) => a.month.localeCompare(b.month));
+    } else {
+      // New student entirely, take all parsed scores that are in sync list?
+      // Or take all parsed scores?
+      // If mode is new_only, monthKeysToSync might be limited.
+      // But for a new student, we probably want all their history from the sheet.
+      // Let's stick to strict sync list to be safe.
+      const replaceMonths = new Set(monthKeysToSync);
+      scoresMerged = (ns.scores || []).filter(sc => replaceMonths.has(sc.month)).sort((a, b) => a.month.localeCompare(b.month));
     }
 
     const oldABM = old?.actionsByMonth && typeof old.actionsByMonth === "object" ? old.actionsByMonth : {};
