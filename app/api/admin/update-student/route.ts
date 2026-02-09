@@ -32,6 +32,7 @@ export async function POST(req: Request) {
             body: JSON.stringify({
                 secret: secret || "123321",
                 action: "update_student",
+                sheet: "DIEM_2526", // Force correct sheet
                 mhs,
                 newClass,
                 newName,
