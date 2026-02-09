@@ -177,7 +177,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   const rawData = await fetchFromAppsScript(sheetName);
 
   if (!Array.isArray(rawData) || rawData.length === 0) {
-    return { students: 0, monthsAll: [], monthsSynced: [], dbId };
+    throw new Error(`Apps Script returned NO DATA for sheet "${sheetName}". Please check if the sheet exists and has data.`);
   }
 
   // Determine Data Format
@@ -185,7 +185,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   if (typeof rawData[0] === 'object' && !Array.isArray(rawData[0])) {
     isObjectFormat = true;
   } else if (rawData.length < 3) {
-    throw new Error(`Sheet too short (rows=${rawData.length}). Need headers.`);
+    throw new Error(`Sheet too short (rows=${rawData.length}) for 2D Array format. Need at least headers.`);
   }
 
   let monthKeysAll: string[] = [];
