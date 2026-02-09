@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getSession } from "@/lib/session";
+import { SCHOOL_YEARS } from "@/lib/schoolConfig";
 
 export const runtime = "nodejs";
 
@@ -151,6 +152,8 @@ function parseScoreValue(v: any): number | null {
   return null;
 }
 
+// ... existing helpers ...
+
 async function doSyncFromSheet(opts?: SyncOpts) {
   const mode: SyncMode = opts?.mode ?? "new_only";
   const selectedMonths: string[] = Array.isArray(opts?.selectedMonths) ? opts!.selectedMonths! : [];
@@ -159,6 +162,16 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) throw new Error("Missing Supabase env");
+
+  // Lookup Config DB ID
+  let dbId = "main";
+  for (const y of SCHOOL_YEARS) {
+    const s = y.sheets.find((sh) => sh.sheetName === sheetName);
+    if (s) {
+      dbId = s.dbId;
+      break;
+    }
+  }
 
   // 1) Fetch từ Apps Script
   const rows = await fetchFromAppsScript(sheetName);
@@ -202,7 +215,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   const { data: oldState, error: oldErr } = await supabase
     .from("app_state")
     .select("students_json")
-    .eq("id", "main")
+    .eq("id", dbId)
     .maybeSingle();
 
   if (oldErr) throw new Error(oldErr.message);
@@ -335,7 +348,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   // 6) Save
   const { error } = await supabase
     .from("app_state")
-    .upsert({ id: "main", students_json: { students: mergedStudents } }, { onConflict: "id" });
+    .upsert({ id: dbId, students_json: { students: mergedStudents } }, { onConflict: "id" });
 
   if (error) throw new Error(error.message);
 
@@ -347,6 +360,8 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     monthsSynced: monthKeysToSync,
     newMonthsDetected,
     students: mergedStudents.length,
+    sheetName,
+    dbId
   };
 }
 
