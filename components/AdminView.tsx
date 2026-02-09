@@ -647,37 +647,81 @@ function StatCard({ label, value, color }: { label: string; value: string | numb
 
 // --- Admin Analytics Tab ---
 function AdminAnalyticsTab({ students }: { students: Student[] }) {
-    // 1. Score Trends Data
+    // Grade Filter State
+    const [selectedGrade, setSelectedGrade] = useState<"ALL" | "K6" | "K7" | "K8" | "K9" | "K10" | "K11" | "K12">("ALL");
+
+    // Filter students based on grade
+    const filteredStudents = useMemo(() => {
+        if (selectedGrade === "ALL") return students;
+        return students.filter(s => {
+            const cls = (s.class || "").trim().toUpperCase();
+            if (selectedGrade === "K6") return cls.startsWith("6");
+            if (selectedGrade === "K7") return cls.startsWith("7");
+            if (selectedGrade === "K8") return cls.startsWith("8");
+            if (selectedGrade === "K9") return cls.startsWith("9");
+            if (selectedGrade === "K10") return cls.startsWith("10");
+            if (selectedGrade === "K11") return cls.startsWith("11");
+            if (selectedGrade === "K12") return cls.startsWith("12");
+            return true;
+        });
+    }, [students, selectedGrade]);
+
+    // 1. Score Trends Data (Breakdown by Grade)
     const scoreTrendData = useMemo(() => {
-        // ... (giữ nguyên logic scoreTrendData)
-        const monthMap = new Map<string, { math: number[], lit: number[], eng: number[] }>();
+        const monthMap = new Map<string, {
+            all: number[],
+            k6: number[], k7: number[], k8: number[], k9: number[],
+            k10: number[], k11: number[], k12: number[]
+        }>();
         const allMonths = new Set<string>();
 
         students.forEach(s => {
+            const cls = (s.class || "").trim().toUpperCase();
+            let grade = "other";
+            if (cls.startsWith("6")) grade = "k6";
+            else if (cls.startsWith("7")) grade = "k7";
+            else if (cls.startsWith("8")) grade = "k8";
+            else if (cls.startsWith("9")) grade = "k9";
+            else if (cls.startsWith("10")) grade = "k10";
+            else if (cls.startsWith("11")) grade = "k11";
+            else if (cls.startsWith("12")) grade = "k12";
+
             s.scores.forEach(score => {
                 const m = score.month;
                 if (!isMonthKey(m)) return;
                 allMonths.add(m);
-                if (!monthMap.has(m)) monthMap.set(m, { math: [], lit: [], eng: [] });
+                if (!monthMap.has(m)) monthMap.set(m, { all: [], k6: [], k7: [], k8: [], k9: [], k10: [], k11: [], k12: [] });
+
                 const entry = monthMap.get(m)!;
-                if (typeof score.math === "number") entry.math.push(score.math);
-                if (typeof score.lit === "number") entry.lit.push(score.lit);
-                if (typeof score.eng === "number") entry.eng.push(score.eng);
+                const vals = [score.math, score.lit, score.eng].filter(v => typeof v === "number" && v !== null) as number[];
+                if (vals.length) {
+                    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+                    entry.all.push(avg);
+                    if (grade === "k6") entry.k6.push(avg);
+                    if (grade === "k7") entry.k7.push(avg);
+                    if (grade === "k8") entry.k8.push(avg);
+                    if (grade === "k9") entry.k9.push(avg);
+                    if (grade === "k10") entry.k10.push(avg);
+                    if (grade === "k11") entry.k11.push(avg);
+                    if (grade === "k12") entry.k12.push(avg);
+                }
             });
         });
 
+        const avg = (arr: number[]) => arr.length ? parseFloat((arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(2)) : null;
+
         return Array.from(allMonths).sort().map(month => {
             const data = monthMap.get(month)!;
-            const avg = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
-            const max = (arr: number[]) => arr.length ? Math.max(...arr) : 0;
-            const min = (arr: number[]) => arr.length ? Math.min(...arr) : 0;
-
-            const allScores = [...data.math, ...data.lit, ...data.eng];
             return {
                 month,
-                avgScore: parseFloat(avg(allScores).toFixed(2)),
-                maxScore: max(allScores),
-                minScore: min(allScores),
+                all: avg(data.all),
+                k6: avg(data.k6),
+                k7: avg(data.k7),
+                k8: avg(data.k8),
+                k9: avg(data.k9),
+                k10: avg(data.k10),
+                k11: avg(data.k11),
+                k12: avg(data.k12),
             };
         });
     }, [students]);
@@ -691,9 +735,9 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
         const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         s.add(isoMonth(prevMonth));
         // Add months from actual data
-        students.forEach(st => st.scores?.forEach(sc => s.add(sc.month)));
+        filteredStudents.forEach(st => st.scores?.forEach(sc => s.add(sc.month)));
         return Array.from(s).sort().reverse();
-    }, [students]);
+    }, [filteredStudents]);
 
     // Default to current month or latest available
     const [selectedMonth, setSelectedMonth] = useState<string>(isoMonth(new Date()));
