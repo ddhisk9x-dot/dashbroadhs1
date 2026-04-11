@@ -935,11 +935,76 @@ function AdminAnalyticsTab({ students }: { students: Student[] }) {
         }).filter(Boolean);
     }, [filteredStudents, selectedMonth]);
 
+    const handleExportTasksExcel = () => {
+        if (typeof XLSX === "undefined") {
+            alert("Thư viện xuất Excel đang tải. Vui lòng ấn lại sau vài giây.");
+            return;
+        }
+
+        const dataToExport = filteredStudents.map(s => {
+            const scoreObj = s.scores.find(sc => sc.month === selectedMonth) || { math: null, lit: null, eng: null };
+            
+            // Tìm danh sách nhiệm vụ áp dụng cho tháng đang chọn
+            const monthKey = selectedMonth;
+            const abm = safeActionsByMonth(s);
+            let activeActs = Array.isArray((s as any).activeActions) ? ((s as any).activeActions as StudyAction[]) : [];
+            
+            // Ưu tiên dùng archive actionsByMonth nếu đang xem tháng cũ và nó có lưu trữ
+            if (abm && abm[monthKey] && abm[monthKey].length > 0) {
+                activeActs = abm[monthKey];
+            }
+
+            let taskStr = "";
+            if (activeActs && activeActs.length > 0) {
+                taskStr = activeActs.map(act => {
+                    const ticks = Array.isArray(act.ticks) ? act.ticks : [];
+                    const doneTicksForMonth = ticks.filter(t => t.completed && String(t.date || "").startsWith(monthKey)).length;
+                    return `- ${act.description} (Tick: ${doneTicksForMonth})`;
+                }).join("\n");
+            } else {
+                taskStr = "Không có nhiệm vụ";
+            }
+
+            // Tính điểm Trung bình
+            const validScores = [scoreObj.math, scoreObj.lit, scoreObj.eng].filter(v => typeof v === "number" && v !== null) as number[];
+            const avg = validScores.length ? (validScores.reduce((a, b) => a + b, 0) / validScores.length).toFixed(1) : "";
+
+            return {
+                "MHS": s.mhs,
+                "Họ tên": s.name,
+                "Lớp": s.class || "",
+                "Toán": typeof scoreObj.math === "number" ? scoreObj.math : "",
+                "Văn": typeof scoreObj.lit === "number" ? scoreObj.lit : "",
+                "Anh": typeof scoreObj.eng === "number" ? scoreObj.eng : "",
+                "TB (Tháng)": avg,
+                "Danh sách Nhiệm vụ & Tiến độ (Tháng)": taskStr
+            };
+        });
+
+        if (dataToExport.length === 0) {
+            alert("Không có học sinh nào phù hợp với bộ lọc để xuất!");
+            return;
+        }
+
+        const ws = XLSX.utils.json_to_sheet(dataToExport);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Nhiem_Vu");
+        XLSX.writeFile(wb, `Bao_Cao_Nhiem_Vu_${selectedMonth.replace("-", "_")}.xlsx`);
+    };
+
     return (
         <div className="p-4 md:p-8 space-y-8 animate-in fade-in">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
                 <h2 className="text-2xl font-bold text-slate-800">Báo cáo & Thống kê</h2>
-                <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                    <button 
+                        onClick={handleExportTasksExcel}
+                        className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors"
+                        title="Xuất file Excel báo cáo Nhiệm vụ & Điểm số theo Tháng/Lớp"
+                    >
+                        <ClipboardList size={18} />
+                        <span>Xuất Excel Nhiệm vụ</span>
+                    </button>
                     {/* Grade Filter */}
                     <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-slate-200">
                         {(["ALL", "K6", "K7", "K8", "K9", "K10", "K11", "K12"] as const).map(g => (
