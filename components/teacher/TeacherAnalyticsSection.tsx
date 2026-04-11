@@ -2,11 +2,13 @@
 
 import React, { useMemo, useState } from "react";
 import { Student, StudyAction } from "../../types";
-import { AlertCircle, TrendingUp } from "lucide-react";
+import { AlertCircle, TrendingUp, ClipboardList } from "lucide-react";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Cell,
     ScatterChart, Scatter, ReferenceLine
 } from "recharts";
+
+declare const XLSX: any;
 
 // Helper functions
 function isoMonth(d: Date) {
@@ -202,6 +204,60 @@ export default function TeacherAnalyticsSection({ students, teacherClass }: Teac
         }));
     }, [subjectAvgData]);
 
+    const handleExportTasksExcel = () => {
+        if (typeof XLSX === "undefined") {
+            alert("Thư viện xuất Excel đang tải. Vui lòng ấn lại sau vài giây.");
+            return;
+        }
+
+        const dataToExport = students.map(s => {
+            const scoreObj = s.scores.find(sc => sc.month === selectedMonth) || { math: null, lit: null, eng: null };
+            
+            const monthKey = selectedMonth;
+            const abm = safeActionsByMonth(s);
+            let activeActs = Array.isArray((s as any).activeActions) ? ((s as any).activeActions as StudyAction[]) : [];
+            
+            if (abm && abm[monthKey] && abm[monthKey].length > 0) {
+                activeActs = abm[monthKey];
+            }
+
+            let taskStr = "";
+            if (activeActs && activeActs.length > 0) {
+                taskStr = activeActs.map(act => {
+                    const ticks = Array.isArray(act.ticks) ? act.ticks : [];
+                    const doneTicksForMonth = ticks.filter(t => t.completed && String(t.date || "").startsWith(monthKey)).length;
+                    return `- ${act.description} (Tick: ${doneTicksForMonth})`;
+                }).join("\n");
+            } else {
+                taskStr = "Không có nhiệm vụ";
+            }
+
+            const validScores = [scoreObj.math, scoreObj.lit, scoreObj.eng].filter(v => typeof v === "number" && v !== null) as number[];
+            const avg = validScores.length ? (validScores.reduce((a, b) => a + b, 0) / validScores.length).toFixed(1) : "";
+
+            return {
+                "MHS": s.mhs,
+                "Họ tên": s.name,
+                "Lớp": s.class || "",
+                "Toán": typeof scoreObj.math === "number" ? scoreObj.math : "",
+                "Văn": typeof scoreObj.lit === "number" ? scoreObj.lit : "",
+                "Anh": typeof scoreObj.eng === "number" ? scoreObj.eng : "",
+                "TB (Tháng)": avg,
+                "Danh sách Nhiệm vụ & Tiến độ (Tháng)": taskStr
+            };
+        });
+
+        if (dataToExport.length === 0) {
+            alert("Không có học sinh nào phù hợp với bộ lọc để xuất!");
+            return;
+        }
+
+        const ws = XLSX.utils.json_to_sheet(dataToExport);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Nhiem_Vu");
+        XLSX.writeFile(wb, `Bao_Cao_Nhiem_Vu_${teacherClass !== "Tất cả" && teacherClass ? teacherClass + "_" : ""}${selectedMonth.replace("-", "_")}.xlsx`);
+    };
+
     return (
         <div className="space-y-6 animate-in fade-in">
             {/* Header with Month Selector */}
@@ -210,14 +266,24 @@ export default function TeacherAnalyticsSection({ students, teacherClass }: Teac
                     <h2 className="text-xl font-bold text-slate-800">📊 Báo cáo Lớp {teacherClass}</h2>
                     <p className="text-sm text-slate-500">Phân tích học lực và tiến bộ của học sinh</p>
                 </div>
-                <select
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(e.target.value)}
-                    className="border border-slate-200 rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm"
-                >
-                    {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
-                    {availableMonths.length === 0 && <option value={isoMonth(new Date())}>{isoMonth(new Date())}</option>}
-                </select>
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                    <button 
+                        onClick={handleExportTasksExcel}
+                        className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors cursor-pointer"
+                        title="Xuất file Excel báo cáo Nhiệm vụ & Điểm số theo Tháng/Lớp"
+                    >
+                        <ClipboardList size={18} />
+                        <span>Xuất Excel Nhiệm vụ</span>
+                    </button>
+                    <select
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(e.target.value)}
+                        className="border border-slate-200 rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm"
+                    >
+                        {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                        {availableMonths.length === 0 && <option value={isoMonth(new Date())}>{isoMonth(new Date())}</option>}
+                    </select>
+                </div>
             </div>
 
             {/* ==== Section 1: Combined Early Warning & Habit Matrix ==== */}

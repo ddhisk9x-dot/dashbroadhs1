@@ -414,8 +414,8 @@ const TeacherView: React.FC<TeacherViewProps> = ({
             />
           ) : (
             <TeacherAnalyticsSection
-              students={visibleStudents}
-              teacherClass={teacherClass || "Tất cả"}
+              students={filteredStudents}
+              teacherClass={filterClass !== "ALL" ? filterClass : (teacherClass || "Tất cả")}
             />
           )}
         </main>
