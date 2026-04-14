@@ -270,20 +270,26 @@ export function mergeTicksIntoStudents(
       });
     }
 
-    // Also merge into activeActions (backward compat)
-    // Try exact match first, then fallback to index-based from actionsByMonth matches
-    let activeActions = Array.isArray(s.activeActions) ? [...s.activeActions] : [];
-    activeActions = activeActions.map((action: any, idx: number) => {
-      // Try flexible match
-      const actionTicks = findTicksForAction(String(action.id || ""));
-      if (actionTicks) return { ...action, ticks: actionTicks };
+    // CRITICAL FIX: Replace activeActions with the LATEST month's actions from actionsByMonth
+    // This eliminates the stale-ID problem where activeActions has old IDs that don't match ticks
+    const sortedMonths = Object.keys(abm).sort();
+    const latestMonth = sortedMonths[sortedMonths.length - 1];
+    let activeActions: any[];
 
-      // Fallback: use index-based match from actionsByMonth (same position = same action)
-      const fallbackTicks = allMatchedTicks.get(String(idx));
-      if (fallbackTicks) return { ...action, ticks: fallbackTicks };
-
-      return action;
-    });
+    if (latestMonth && Array.isArray(abm[latestMonth]) && abm[latestMonth].length > 0) {
+      // Use latest month's actions (which already have merged ticks from above)
+      activeActions = abm[latestMonth];
+    } else {
+      // No actionsByMonth data — try to merge ticks into existing activeActions
+      activeActions = Array.isArray(s.activeActions) ? [...s.activeActions] : [];
+      activeActions = activeActions.map((action: any, idx: number) => {
+        const actionTicks = findTicksForAction(String(action.id || ""));
+        if (actionTicks) return { ...action, ticks: actionTicks };
+        const fallbackTicks = allMatchedTicks.get(String(idx));
+        if (fallbackTicks) return { ...action, ticks: fallbackTicks };
+        return action;
+      });
+    }
 
     // Attach raw ticks map for direct access by frontend (bypass merge issues)
     const _ticksByActionId: Record<string, { date: string; completed: boolean }[]> = {};
