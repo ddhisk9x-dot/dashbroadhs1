@@ -51,9 +51,24 @@ export async function getAppStateForYear(yearId: string = DEFAULT_YEAR_ID): Prom
   return { students: allStudents };
 }
 
-// Legacy support (defaults to current year)
+// =====================================================
+// In-memory cache for app state (reduces Disk IO)
+// =====================================================
+let _appStateCache: { data: AppState; ts: number } | null = null;
+const CACHE_TTL = 60_000; // 60 seconds
+
+export function invalidateAppStateCache() {
+  _appStateCache = null;
+}
+
+// Legacy support (defaults to current year) — with caching
 export async function getAppState(): Promise<AppState> {
-  return getAppStateForYear(DEFAULT_YEAR_ID);
+  if (_appStateCache && Date.now() - _appStateCache.ts < CACHE_TTL) {
+    return _appStateCache.data;
+  }
+  const data = await getAppStateForYear(DEFAULT_YEAR_ID);
+  _appStateCache = { data, ts: Date.now() };
+  return data;
 }
 
 // Save data for a specific sheet (DB ID)
@@ -63,5 +78,176 @@ export async function setAppState(state: AppState, dbId: string = "main"): Promi
     .upsert({ id: dbId, students_json: state, updated_at: new Date().toISOString() });
 
   if (error) throw error;
+
+  // Invalidate cache so next read gets fresh data
+  invalidateAppStateCache();
 }
 
+// =====================================================
+// NEW: Lightweight Tick Operations (No full JSON R/W)
+// =====================================================
+
+/**
+ * Upsert a single tick into the student_ticks table.
+ * This is a lightweight operation — 1 tiny row INSERT/UPDATE.
+ * No race conditions, no reading the full student blob.
+ */
+export async function upsertTick(
+  mhs: string,
+  actionId: string,
+  tickDate: string,
+  completed: boolean
+): Promise<void> {
+  const { error } = await supabase
+    .from("student_ticks")
+    .upsert(
+      {
+        mhs: mhs.trim(),
+        action_id: actionId.trim(),
+        tick_date: tickDate.trim(),
+        completed,
+      },
+      { onConflict: "mhs,action_id,tick_date" }
+    );
+
+  if (error) {
+    console.error("upsertTick error:", error);
+    throw error;
+  }
+}
+
+/**
+ * Fetch all ticks for a single student from the dedicated table.
+ */
+export async function getTicksForStudent(mhs: string): Promise<
+  { action_id: string; tick_date: string; completed: boolean }[]
+> {
+  const { data, error } = await supabase
+    .from("student_ticks")
+    .select("action_id, tick_date, completed")
+    .eq("mhs", mhs.trim());
+
+  if (error) {
+    console.error("getTicksForStudent error:", error);
+    return [];
+  }
+  return data || [];
+}
+
+/**
+ * Fetch all ticks for multiple students (batch).
+ * Used by admin/teacher bulk views.
+ */
+export async function getTicksForAllStudents(): Promise<
+  { mhs: string; action_id: string; tick_date: string; completed: boolean }[]
+> {
+  // Supabase default limit is 1000 rows. For larger schools, paginate.
+  let allTicks: any[] = [];
+  let from = 0;
+  const PAGE = 1000;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("student_ticks")
+      .select("mhs, action_id, tick_date, completed")
+      .range(from, from + PAGE - 1);
+
+    if (error) {
+      console.error("getTicksForAllStudents error:", error);
+      break;
+    }
+    if (!data || data.length === 0) break;
+    allTicks = allTicks.concat(data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+
+  return allTicks;
+}
+
+/**
+ * Merge ticks from the dedicated table into student action objects.
+ * This reconstructs the ticks array on each StudyAction so existing
+ * frontend code works WITHOUT any changes.
+ */
+export function mergeTicksIntoStudents(
+  students: any[],
+  allTicks: { mhs: string; action_id: string; tick_date: string; completed: boolean }[]
+): any[] {
+  // Group ticks by mhs
+  const tickMap = new Map<string, { action_id: string; tick_date: string; completed: boolean }[]>();
+  allTicks.forEach((t) => {
+    const key = t.mhs.trim();
+    if (!tickMap.has(key)) tickMap.set(key, []);
+    tickMap.get(key)!.push(t);
+  });
+
+  return students.map((s) => {
+    const mhs = String(s.mhs || "").trim();
+    const studentTicks = tickMap.get(mhs);
+    if (!studentTicks || studentTicks.length === 0) return s;
+
+    // Group ticks by action_id
+    const ticksByAction = new Map<string, { date: string; completed: boolean }[]>();
+    studentTicks.forEach((t) => {
+      const aid = t.action_id;
+      if (!ticksByAction.has(aid)) ticksByAction.set(aid, []);
+      ticksByAction.get(aid)!.push({ date: t.tick_date, completed: t.completed });
+    });
+
+    // Merge into actionsByMonth
+    const abm = s.actionsByMonth && typeof s.actionsByMonth === "object"
+      ? { ...s.actionsByMonth }
+      : {};
+
+    for (const monthKey of Object.keys(abm)) {
+      if (!Array.isArray(abm[monthKey])) continue;
+      abm[monthKey] = abm[monthKey].map((action: any) => {
+        const actionTicks = ticksByAction.get(String(action.id || ""));
+        if (!actionTicks) return action;
+        return { ...action, ticks: actionTicks };
+      });
+    }
+
+    // Also merge into activeActions (backward compat)
+    let activeActions = Array.isArray(s.activeActions) ? [...s.activeActions] : [];
+    activeActions = activeActions.map((action: any) => {
+      const actionTicks = ticksByAction.get(String(action.id || ""));
+      if (!actionTicks) return action;
+      return { ...action, ticks: actionTicks };
+    });
+
+    return { ...s, actionsByMonth: abm, activeActions };
+  });
+}
+
+/**
+ * Convenience: Load full state + merge ticks in one call.
+ * Used by admin/teacher views.
+ */
+export async function getAppStateWithTicks(): Promise<AppState> {
+  const [state, ticks] = await Promise.all([
+    getAppState(),
+    getTicksForAllStudents(),
+  ]);
+
+  return {
+    students: mergeTicksIntoStudents(state.students, ticks),
+  };
+}
+
+/**
+ * Convenience: Load full state + merge ticks for a single student.
+ * Used by student/me view.
+ */
+export async function getAppStateWithTicksForStudent(mhs: string): Promise<AppState> {
+  const [state, ticks] = await Promise.all([
+    getAppState(),
+    getTicksForStudent(mhs),
+  ]);
+
+  const ticksWithMhs = ticks.map((t) => ({ ...t, mhs }));
+  return {
+    students: mergeTicksIntoStudents(state.students, ticksWithMhs),
+  };
+}

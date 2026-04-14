@@ -213,27 +213,23 @@ export default function DashboardApp() {
     );
   };
 
-  // ✅ FIX: tick phải cập nhật cả actionsByMonth + activeActions (hoặc lấy student mới từ server)
+  // ✅ FIX: Optimistic update only — no refetch from server (prevents JSON blob reads + fixes disappearing ticks)
   const handleUpdateAction = async (actionId: string, date: string, completed: boolean) => {
     if (!user || user.role !== "STUDENT") return;
     if (!currentStudent) return;
 
-    // optimistic update (để UI đổi ngay)
+    // Save backup for rollback
+    const backup = currentStudent;
+
+    // Optimistic update (patches the specific tick without losing others)
     setCurrentStudent((prev) => (prev ? patchStudentTickEverywhere(prev, actionId, date, completed) : prev));
 
     try {
-      const resp = await api.tick(user.username, actionId, date, completed);
-      if (resp?.student) {
-        setCurrentStudent(resp.student);
-      } else {
-        // fallback refetch
-        const fresh = await api.getStudentMe(user.username);
-        setCurrentStudent(fresh);
-      }
+      await api.tick(user.username, actionId, date, completed);
+      // ✅ Tick saved successfully — keep optimistic state (all ticks preserved)
     } catch {
-      // rollback bằng refetch
-      const fresh = await api.getStudentMe(user.username);
-      setCurrentStudent(fresh);
+      // ❌ Tick failed — rollback to pre-tick state
+      setCurrentStudent(backup);
     }
   };
 

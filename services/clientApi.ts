@@ -86,7 +86,7 @@ export const api = {
     a1: string,
     a2: boolean | string,
     a3?: boolean
-  ): Promise<{ success: boolean; student?: Student; error?: string }> {
+  ): Promise<{ success: boolean; error?: string }> {
     let actionId = "";
     let date = "";
     let completed = false;
@@ -103,12 +103,12 @@ export const api = {
       completed = !!a2;
     }
 
-    const data = await jfetch<{ student: Student }>("/api/student/tick", {
+    await jfetch<{ ok: boolean }>("/api/student/tick", {
       method: "POST",
       body: JSON.stringify({ actionId, date, completed }),
     });
 
-    return { success: true, student: data.student };
+    return { success: true };
   },
 
   async generateStudentReport(student: Student): Promise<any> {
