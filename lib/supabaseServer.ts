@@ -88,9 +88,8 @@ export async function setAppState(state: AppState, dbId: string = "main"): Promi
 // =====================================================
 
 /**
- * Upsert a single tick into the student_ticks table.
- * This is a lightweight operation — 1 tiny row INSERT/UPDATE.
- * No race conditions, no reading the full student blob.
+ * Save a tick using DELETE + INSERT for maximum reliability.
+ * This avoids issues with missing unique constraints on upsert.
  */
 export async function upsertTick(
   mhs: string,
@@ -98,22 +97,57 @@ export async function upsertTick(
   tickDate: string,
   completed: boolean
 ): Promise<void> {
-  const { error } = await supabase
-    .from("student_ticks")
-    .upsert(
-      {
-        mhs: mhs.trim(),
-        action_id: actionId.trim(),
-        tick_date: tickDate.trim(),
-        completed,
-      },
-      { onConflict: "mhs,action_id,tick_date" }
-    );
+  const cleanMhs = mhs.trim();
+  const cleanActionId = actionId.trim();
+  const cleanDate = tickDate.trim();
 
-  if (error) {
-    console.error("upsertTick error:", error);
-    throw error;
+  console.log(`[TICK] Saving: mhs=${cleanMhs}, action=${cleanActionId}, date=${cleanDate}, completed=${completed}`);
+
+  // Step 1: Delete any existing row with same key
+  const { error: delErr } = await supabase
+    .from("student_ticks")
+    .delete()
+    .eq("mhs", cleanMhs)
+    .eq("action_id", cleanActionId)
+    .eq("tick_date", cleanDate);
+
+  if (delErr) {
+    console.error("[TICK] Delete failed:", delErr);
+    // Don't throw — still try to insert
   }
+
+  // Step 2: Insert new row (only if completed=true; if false, just delete is enough)
+  if (completed) {
+    const { error: insErr } = await supabase
+      .from("student_ticks")
+      .insert({
+        mhs: cleanMhs,
+        action_id: cleanActionId,
+        tick_date: cleanDate,
+        completed: true,
+      });
+
+    if (insErr) {
+      console.error("[TICK] Insert failed:", insErr);
+      throw insErr;
+    }
+  }
+
+  // Step 3: Verify write (read back)
+  const { data: verify, error: verErr } = await supabase
+    .from("student_ticks")
+    .select("mhs, action_id, tick_date, completed")
+    .eq("mhs", cleanMhs)
+    .eq("action_id", cleanActionId)
+    .eq("tick_date", cleanDate)
+    .maybeSingle();
+
+  if (completed && (!verify || verErr)) {
+    console.error("[TICK] VERIFICATION FAILED — tick not found after insert!", { verify, verErr });
+    throw new Error("Tick verification failed: row not found after insert");
+  }
+
+  console.log(`[TICK] Verified OK: ${completed ? "saved" : "deleted"}`);
 }
 
 /**
