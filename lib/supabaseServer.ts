@@ -201,8 +201,8 @@ export async function getTicksForAllStudents(): Promise<
 
 /**
  * Merge ticks from the dedicated table into student action objects.
- * This reconstructs the ticks array on each StudyAction so existing
- * frontend code works WITHOUT any changes.
+ * ROBUST version: handles ID mismatches between activeActions and actionsByMonth.
+ * Also attaches _ticksByActionId map to each student for direct frontend access.
  */
 export function mergeTicksIntoStudents(
   students: any[],
@@ -229,29 +229,69 @@ export function mergeTicksIntoStudents(
       ticksByAction.get(aid)!.push({ date: t.tick_date, completed: t.completed });
     });
 
+    // Helper: find ticks for an action with flexible matching
+    const findTicksForAction = (actionId: string): { date: string; completed: boolean }[] | undefined => {
+      // 1. Exact match
+      const exact = ticksByAction.get(actionId);
+      if (exact) return exact;
+
+      // 2. Try with MHS prefix (action.id might be stored with mhs- prefix in DB)
+      const prefixed = ticksByAction.get(`${mhs}-${actionId}`);
+      if (prefixed) return prefixed;
+
+      // 3. Try stripping MHS prefix from DB action_id
+      for (const [key, val] of ticksByAction.entries()) {
+        // DB has "24123802-1774001567368-0", blob has "1774001567368-0"
+        if (key.startsWith(`${mhs}-`) && key.substring(mhs.length + 1) === actionId) {
+          return val;
+        }
+      }
+
+      return undefined;
+    };
+
     // Merge into actionsByMonth
     const abm = s.actionsByMonth && typeof s.actionsByMonth === "object"
       ? { ...s.actionsByMonth }
       : {};
 
+    // Collect ALL unique ticks from matched actions (for fallback into activeActions)
+    const allMatchedTicks = new Map<string, { date: string; completed: boolean }[]>();
+
     for (const monthKey of Object.keys(abm)) {
       if (!Array.isArray(abm[monthKey])) continue;
-      abm[monthKey] = abm[monthKey].map((action: any) => {
-        const actionTicks = ticksByAction.get(String(action.id || ""));
-        if (!actionTicks) return action;
-        return { ...action, ticks: actionTicks };
+      abm[monthKey] = abm[monthKey].map((action: any, idx: number) => {
+        const actionTicks = findTicksForAction(String(action.id || ""));
+        if (actionTicks) {
+          allMatchedTicks.set(String(idx), actionTicks);
+          return { ...action, ticks: actionTicks };
+        }
+        return action;
       });
     }
 
     // Also merge into activeActions (backward compat)
+    // Try exact match first, then fallback to index-based from actionsByMonth matches
     let activeActions = Array.isArray(s.activeActions) ? [...s.activeActions] : [];
-    activeActions = activeActions.map((action: any) => {
-      const actionTicks = ticksByAction.get(String(action.id || ""));
-      if (!actionTicks) return action;
-      return { ...action, ticks: actionTicks };
+    activeActions = activeActions.map((action: any, idx: number) => {
+      // Try flexible match
+      const actionTicks = findTicksForAction(String(action.id || ""));
+      if (actionTicks) return { ...action, ticks: actionTicks };
+
+      // Fallback: use index-based match from actionsByMonth (same position = same action)
+      const fallbackTicks = allMatchedTicks.get(String(idx));
+      if (fallbackTicks) return { ...action, ticks: fallbackTicks };
+
+      return action;
     });
 
-    return { ...s, actionsByMonth: abm, activeActions };
+    // Attach raw ticks map for direct access by frontend (bypass merge issues)
+    const _ticksByActionId: Record<string, { date: string; completed: boolean }[]> = {};
+    ticksByAction.forEach((val, key) => {
+      _ticksByActionId[key] = val;
+    });
+
+    return { ...s, actionsByMonth: abm, activeActions, _ticksByActionId };
   });
 }
 

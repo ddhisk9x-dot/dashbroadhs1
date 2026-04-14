@@ -113,9 +113,18 @@ function getActionsForMonth(student: Student, monthKey: string): StudyAction[] {
   if (Array.isArray(list) && list.length) return list;
   return Array.isArray(student.activeActions) ? student.activeActions : [];
 }
-function buildTickMap(action: StudyAction) {
+function buildTickMap(action: StudyAction, student?: Student) {
   const map = new Map<string, boolean>();
+  // Primary: use action.ticks (from merge)
   (action.ticks || []).forEach((t) => map.set(String(t.date), !!t.completed));
+  // Fallback: check _ticksByActionId raw map on student
+  if (map.size === 0 && student && (student as any)._ticksByActionId) {
+    const rawMap = (student as any)._ticksByActionId as Record<string, { date: string; completed: boolean }[]>;
+    const rawTicks = rawMap[action.id];
+    if (rawTicks) {
+      rawTicks.forEach((t) => map.set(String(t.date), !!t.completed));
+    }
+  }
   return map;
 }
 
@@ -184,7 +193,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
   }, [student.scores, student.dashboardStats]);
 
   const toggleDaily = async (action: StudyAction) => {
-    const tickMap = buildTickMap(action);
+    const tickMap = buildTickMap(action, student);
     const cur = !!tickMap.get(selectedDate);
     await onUpdateAction(action.id, selectedDate, !cur);
   };
@@ -297,7 +306,7 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                 ) : (
                   <div className="grid md:grid-cols-2 gap-4">
                     {dailyActions.map((a) => {
-                      const tickMap = buildTickMap(a);
+                      const tickMap = buildTickMap(a, student);
                       const done = !!tickMap.get(selectedDate);
                       return (
                         <button
