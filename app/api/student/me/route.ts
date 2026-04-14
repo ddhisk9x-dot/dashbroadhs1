@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getAppState } from "@/lib/supabaseServer";
+import { getAppState, getTicksForStudent, mergeTicksIntoStudents } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
@@ -10,11 +10,37 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const state = await getAppState();
   const mhs = String(session.mhs).trim();
-  const student = (state.students || []).find((s: any) => String(s.mhs).trim() === mhs);
 
-  if (!student) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // Load data separately for debugging
+  const [state, rawTicks] = await Promise.all([
+    getAppState(),
+    getTicksForStudent(mhs),
+  ]);
+
+  const ticksWithMhs = rawTicks.map((t) => ({ ...t, mhs }));
+
+  // Find raw student BEFORE merge
+  const rawStudent = (state.students || []).find((s: any) => String(s.mhs).trim() === mhs);
+
+  // Debug: collect action IDs from blob
+  const debugBlobActionIds: Record<string, string[]> = {};
+  if (rawStudent) {
+    const abm = rawStudent.actionsByMonth || {};
+    for (const mk of Object.keys(abm)) {
+      debugBlobActionIds[`abm_${mk}`] = (abm[mk] || []).map((a: any) => String(a.id || ""));
+    }
+    debugBlobActionIds["activeActions"] = (rawStudent.activeActions || []).map((a: any) => String(a.id || ""));
+  }
+
+  // Debug: collect action IDs from ticks DB
+  const debugTickActionIds = [...new Set(rawTicks.map(t => t.action_id))];
+
+  // Now merge
+  const merged = mergeTicksIntoStudents(state.students || [], ticksWithMhs);
+  const student = merged.find((s: any) => String(s.mhs).trim() === mhs);
+
+  if (!student) return NextResponse.json({ error: "Not found", _debug: { mhs, rawTickCount: rawTicks.length, studentFound: false } }, { status: 404 });
 
   // ====== STATS CALCULATION (Server-Side) ======
   // Helpers
@@ -297,5 +323,19 @@ export async function GET() {
     }
   };
 
-  return NextResponse.json({ student: finalStudent });
+  return NextResponse.json({
+    student: finalStudent,
+    _debug: {
+      mhs,
+      rawTickCount: rawTicks.length,
+      rawTickActionIds: debugTickActionIds,
+      blobActionIds: debugBlobActionIds,
+      mergedTicksOnActiveActions: (student.activeActions || []).map((a: any) => ({
+        id: a.id,
+        tickCount: (a.ticks || []).length,
+      })),
+      hasTicksByActionId: !!(student as any)._ticksByActionId,
+      ticksByActionIdKeys: Object.keys((student as any)._ticksByActionId || {}),
+    }
+  });
 }
