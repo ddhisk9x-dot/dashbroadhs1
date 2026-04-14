@@ -1,7 +1,7 @@
 // app/api/admin/get-students/route.ts
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getAppState } from "@/lib/supabaseServer";
+import { getAppStateWithTicks } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
@@ -16,7 +16,7 @@ type Student = {
 };
 
 async function loadStudents(): Promise<Student[]> {
-  const state = await getAppState();
+  const state = await getAppStateWithTicks();
   return Array.isArray(state.students) ? state.students : [];
 }
 

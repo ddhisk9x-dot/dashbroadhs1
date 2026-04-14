@@ -79,9 +79,15 @@ function safeActionsByMonth(student?: Student): Record<string, StudyAction[]> {
     const aa = Array.isArray((student as any)?.activeActions) ? ((student as any).activeActions as StudyAction[]) : [];
     return { [taskMonth]: aa };
 }
-function buildTickMap(action: any) {
+function buildTickMap(action: any, student?: any) {
     const m = new Map<string, boolean>();
+    // Primary: from merged action.ticks
     (action?.ticks || []).forEach((t: any) => m.set(String(t?.date), !!t?.completed));
+    // Fallback: check raw _ticksByActionId on student
+    if (m.size === 0 && student?._ticksByActionId) {
+        const raw = student._ticksByActionId[action?.id];
+        if (raw) raw.forEach((t: any) => m.set(String(t?.date), !!t?.completed));
+    }
     return m;
 }
 
@@ -156,9 +162,16 @@ export default function TeacherStudentDetailModal({
 
     const actionsForView = useMemo(() => {
         const abm = safeActionsByMonth(student);
+        // Try exact month first
         const acts = abm[monthForActions];
-        if (Array.isArray(acts)) return acts;
-        // fallback legacy activeActions if match
+        if (Array.isArray(acts) && acts.length) return acts;
+        // Fallback: use LATEST month's actions from actionsByMonth (has correct IDs + ticks)
+        const sortedMonths = Object.keys(abm).sort();
+        for (let i = sortedMonths.length - 1; i >= 0; i--) {
+            const fallback = abm[sortedMonths[i]];
+            if (Array.isArray(fallback) && fallback.length) return fallback;
+        }
+        // Last resort: activeActions
         return Array.isArray(student.activeActions) ? student.activeActions : [];
     }, [student, monthForActions]);
 
@@ -315,7 +328,7 @@ export default function TeacherStudentDetailModal({
                             ) : (
                                 <div className="space-y-6">
                                     {actionsForView.map((action: StudyAction) => {
-                                        const tickMap = buildTickMap(action);
+                                        const tickMap = buildTickMap(action, student);
                                         const countDone = trackingDates.reduce((acc, d) => acc + (tickMap.get(d) ? 1 : 0), 0);
                                         return (
                                             <div key={action.id} className="bg-white border border-slate-100 rounded-2xl p-5 shadow-sm">

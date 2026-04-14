@@ -70,22 +70,46 @@ async function persistReportAndActions(mhs: string, report: AIReport, actions: S
     return data;
 }
 
-// Helper to count ticks safely (Prioritize activeActions for current data)
+// Helper to count ticks safely — searches ALL action sources
 function countTicksForMonth(student: Student, month: string): number {
-    // 1. Check activeActions first (Live Data)
-    const aa = Array.isArray((student as any).activeActions) ? ((student as any).activeActions as StudyAction[]) : [];
-    const activeTicks = aa.reduce((acc, a) =>
-        acc + (Array.isArray(a.ticks) ? a.ticks.filter(t => t.completed && t.date && t.date.startsWith(month)).length : 0), 0);
+    let total = 0;
+    const counted = new Set<string>();
 
-    if (activeTicks > 0) return activeTicks;
+    const countFrom = (actions: StudyAction[]) => {
+        actions.forEach(a => {
+            (a.ticks || []).forEach((t: any) => {
+                const key = `${a.id}-${t.date}`;
+                if (t.completed && String(t.date || "").startsWith(month) && !counted.has(key)) {
+                    counted.add(key);
+                    total++;
+                }
+            });
+        });
+    };
 
-    // 2. Fallback: Check archive (actionsByMonth)
+    // Check ALL months in actionsByMonth
     const abm = safeActionsByMonth(student);
-    if (abm && abm[month] && Array.isArray(abm[month])) {
-        return abm[month].reduce((acc, a) => acc + (Array.isArray(a.ticks) ? a.ticks.filter(t => t.completed).length : 0), 0);
+    Object.values(abm).forEach(acts => {
+        if (Array.isArray(acts)) countFrom(acts);
+    });
+
+    // Also check activeActions
+    const aa = Array.isArray((student as any).activeActions) ? ((student as any).activeActions as StudyAction[]) : [];
+    countFrom(aa);
+
+    // Also check raw _ticksByActionId
+    if ((student as any)._ticksByActionId) {
+        const raw = (student as any)._ticksByActionId as Record<string, { date: string; completed: boolean }[]>;
+        Object.values(raw).forEach(ticks => {
+            ticks.forEach(t => {
+                if (t.completed && String(t.date || "").startsWith(month)) {
+                    total++;
+                }
+            });
+        });
     }
 
-    return 0;
+    return total;
 }
 
 
