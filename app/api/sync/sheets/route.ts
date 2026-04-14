@@ -113,7 +113,7 @@ async function fetchFromAppsScript(sheetName: string): Promise<any[][]> {
   return json.data;
 }
 
-// Parse various month formats including ISO dates
+// Parse various month formats including ISO dates and informal 'YYYY MM'
 function parseMonthValue(v: any): string {
   const s = String(v || "").trim();
 
@@ -122,6 +122,12 @@ function parseMonthValue(v: any): string {
 
   // Format: YYYY.MM
   if (/^\d{4}\.\d{2}$/.test(s)) return s.replace(".", "-");
+
+  // Format: YYYY-M or YYYY M (e.g. 2026-3 or 2026 3)
+  const informalMatch = s.match(/^(\d{4})[-\s](\d{1,2})$/);
+  if (informalMatch) {
+    return `${informalMatch[1]}-${informalMatch[2].padStart(2, "0")}`;
+  }
 
   // ISO date format: 2025-11-01T07:00:00.000Z
   const isoMatch = s.match(/^(\d{4})-(\d{2})-\d{2}T/);
@@ -204,14 +210,30 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   // ==========================================
   if (isObjectFormat) {
     // --- OBJECT FORMAT (User's Current Script) ---
-    const studentsData = rawData;
+    // 1. Normalize all keys: spaces -> single space, uppercase, and fix "2026 3 TOÁN" to "2026-03 TOÁN"
+    const studentsData = rawData.map((st: any) => {
+      const normSt: any = {};
+      Object.keys(st).forEach(k => {
+        let normKey = k.trim().replace(/\s+/g, " ").toUpperCase();
+        // Match things like "2026 3 TOAN", "2026-3 TOAN"
+        const match = normKey.match(/^(\d{4})[-\s](\d{1,2})(.*)/);
+        if (match) {
+           const y = match[1];
+           const m = match[2].padStart(2, '0');
+           const rest = match[3];
+           normKey = `${y}-${m}${rest}`;
+        }
+        normSt[normKey] = st[k];
+      });
+      return normSt;
+    });
 
     const allMonths = new Set<string>();
     // Scan first few rows to find month keys "YYYY-MM SUBJECT"
-    // Use regex /^(\d{4}-\d{2})/ to capture date at start of key
+    // Now we can safely use \d{4}-\d{2} because keys are normalized
     studentsData.slice(0, 15).forEach((st: any) => {
       Object.keys(st).forEach(k => {
-        const match = k.trim().match(/^(\d{4}-\d{2})/);
+        const match = k.match(/^(\d{4}-\d{2})/);
         if (match) allMonths.add(match[1]);
       });
     });
@@ -219,7 +241,7 @@ async function doSyncFromSheet(opts?: SyncOpts) {
 
     // Debug check
     if (monthKeysAll.length === 0) {
-      const sample = studentsData[0] ? Object.keys(studentsData[0]).slice(0, 10).join(", ") : "Empty";
+      const sample = rawData[0] ? Object.keys(rawData[0]).slice(0, 10).join(", ") : "Empty";
       throw new Error(`No months found in Object format. Sample keys: [${sample}]`);
     }
 
