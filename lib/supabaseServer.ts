@@ -331,3 +331,43 @@ export async function getAppStateWithTicksForStudent(mhs: string): Promise<AppSt
     students: mergeTicksIntoStudents(state.students, ticksWithMhs),
   };
 }
+
+// =====================================================
+// Tick Lock Settings (stored in app_state row 'tick_settings')
+// =====================================================
+export type TickSettings = {
+  lockBeforeDate: string | null; // YYYY-MM-DD — dates BEFORE this are locked
+};
+
+const TICK_SETTINGS_ID = "tick_settings";
+
+export async function getTickSettings(): Promise<TickSettings> {
+  const { data, error } = await supabase
+    .from("app_state")
+    .select("students_json")
+    .eq("id", TICK_SETTINGS_ID)
+    .maybeSingle();
+
+  if (error || !data) return { lockBeforeDate: null };
+  const json = data.students_json as any;
+  return { lockBeforeDate: json?.lockBeforeDate || null };
+}
+
+export async function setTickSettings(settings: TickSettings): Promise<void> {
+  const { error } = await supabase
+    .from("app_state")
+    .upsert(
+      { id: TICK_SETTINGS_ID, students_json: settings, updated_at: new Date().toISOString() },
+      { onConflict: "id" }
+    );
+  if (error) throw error;
+}
+
+/**
+ * Check if a specific date is locked for ticking.
+ * Returns true if the date is BEFORE the lock date.
+ */
+export function isDateLocked(tickDate: string, lockBeforeDate: string | null): boolean {
+  if (!lockBeforeDate) return false;
+  return tickDate < lockBeforeDate;
+}

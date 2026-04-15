@@ -1,7 +1,7 @@
 // app/api/student/tick/route.ts
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { upsertTick } from "@/lib/supabaseServer";
+import { upsertTick, getTickSettings, isDateLocked } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
@@ -25,6 +25,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
+  // 🔒 CHECK LOCK: Reject if date is locked
+  const settings = await getTickSettings();
+  if (isDateLocked(date, settings.lockBeforeDate)) {
+    return NextResponse.json(
+      { error: "Ngày này đã bị khóa. Không thể tick/bỏ tick.", locked: true },
+      { status: 403 }
+    );
+  }
+
   const mhs = String(session.mhs).trim();
 
   try {
@@ -39,3 +48,4 @@ export async function POST(req: Request) {
   // Frontend uses optimistic update, no need to read heavy JSON blob.
   return NextResponse.json({ ok: true, tickSaved: true });
 }
+

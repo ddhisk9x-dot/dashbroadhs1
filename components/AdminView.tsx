@@ -450,6 +450,52 @@ function AdminDashboardTab({ students }: { students: Student[] }) {
     const [syncing, setSyncing] = useState(false);
     const [syncMsg, setSyncMsg] = useState("");
 
+    // 🔒 Tick Lock State
+    const [lockDate, setLockDate] = useState<string | null>(null);
+    const [lockInput, setLockInput] = useState("");
+    const [lockLoading, setLockLoading] = useState(false);
+    const [lockMsg, setLockMsg] = useState("");
+
+    // Load current lock setting on mount
+    useEffect(() => {
+        api.getTickSettings().then(s => {
+            setLockDate(s.lockBeforeDate);
+            if (s.lockBeforeDate) setLockInput(s.lockBeforeDate);
+        }).catch(() => {});
+    }, []);
+
+    const handleSetLock = async () => {
+        if (!lockInput || !/^\d{4}-\d{2}-\d{2}$/.test(lockInput)) {
+            setLockMsg("❌ Vui lòng nhập đúng định dạng YYYY-MM-DD");
+            return;
+        }
+        setLockLoading(true); setLockMsg("");
+        try {
+            await api.setTickSettings(lockInput);
+            setLockDate(lockInput);
+            setLockMsg("✅ Đã khóa tick cho các ngày trước " + lockInput);
+        } catch (e: any) {
+            setLockMsg("❌ Lỗi: " + e.message);
+        } finally { setLockLoading(false); }
+    };
+
+    const handleUnlock = async () => {
+        setLockLoading(true); setLockMsg("");
+        try {
+            await api.setTickSettings(null);
+            setLockDate(null);
+            setLockInput("");
+            setLockMsg("✅ Đã mở khóa — Học sinh có thể tick mọi ngày.");
+        } catch (e: any) {
+            setLockMsg("❌ Lỗi: " + e.message);
+        } finally { setLockLoading(false); }
+    };
+
+    const handleLockToday = () => {
+        const today = isoDate(new Date());
+        setLockInput(today);
+    };
+
     const handleSync = async () => {
         if (syncing) return;
         setSyncing(true); setSyncMsg("");
@@ -479,6 +525,45 @@ function AdminDashboardTab({ students }: { students: Student[] }) {
                             </button>
                             {syncMsg && <span className={`text-sm font-medium ${syncMsg.startsWith("❌") ? "text-red-600" : "text-emerald-600"}`}>{syncMsg}</span>}
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* 🔒 TICK LOCK/UNLOCK PANEL */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <div className="flex items-start gap-4">
+                    <div className={`p-3 rounded-full ${lockDate ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"}`}>
+                        <span className="text-2xl">{lockDate ? "🔒" : "🔓"}</span>
+                    </div>
+                    <div className="flex-1">
+                        <h3 className="text-lg font-bold text-slate-800">Khóa / Mở khóa Tick ngày cũ</h3>
+                        <p className="text-slate-500 mb-4 text-sm">
+                            {lockDate
+                                ? <>Hiện tại: Học sinh <strong className="text-red-600">không thể tick</strong> cho các ngày <strong>trước {lockDate}</strong>. Các ngày từ {lockDate} trở đi vẫn tick được bình thường.</>
+                                : <>Hiện tại: <strong className="text-emerald-600">Mở tự do</strong> — Học sinh có thể tick bất kỳ ngày nào.</>
+                            }
+                        </p>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                            <input
+                                type="date"
+                                value={lockInput}
+                                onChange={e => setLockInput(e.target.value)}
+                                className="border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-200 outline-none"
+                            />
+                            <button onClick={handleLockToday} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors">
+                                Hôm nay
+                            </button>
+                            <button onClick={handleSetLock} disabled={lockLoading} className="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center gap-2">
+                                🔒 Khóa
+                            </button>
+                            {lockDate && (
+                                <button onClick={handleUnlock} disabled={lockLoading} className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-medium transition-colors disabled:opacity-50 flex items-center gap-2">
+                                    🔓 Mở khóa tất cả
+                                </button>
+                            )}
+                        </div>
+                        {lockMsg && <p className={`text-sm font-medium mt-3 ${lockMsg.startsWith("❌") ? "text-red-600" : "text-emerald-600"}`}>{lockMsg}</p>}
                     </div>
                 </div>
             </div>

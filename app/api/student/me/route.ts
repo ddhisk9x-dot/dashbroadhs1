@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getAppState, getTicksForStudent, mergeTicksIntoStudents } from "@/lib/supabaseServer";
+import { getAppState, getTicksForStudent, mergeTicksIntoStudents, getTickSettings } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
@@ -13,9 +13,10 @@ export async function GET() {
   const mhs = String(session.mhs).trim();
 
   // Load data separately for debugging
-  const [state, rawTicks] = await Promise.all([
+  const [state, rawTicks, tickSettings] = await Promise.all([
     getAppState(),
     getTicksForStudent(mhs),
+    getTickSettings(),
   ]);
 
   const ticksWithMhs = rawTicks.map((t) => ({ ...t, mhs }));
@@ -325,6 +326,7 @@ export async function GET() {
 
   return NextResponse.json({
     student: finalStudent,
+    lockBeforeDate: tickSettings.lockBeforeDate,
     _debug: {
       mhs,
       rawTickCount: rawTicks.length,

@@ -14,6 +14,7 @@ type Props = {
   student: Student;
   onUpdateAction: (actionId: string, date: string, completed: boolean) => Promise<void>;
   onLogout: () => Promise<void>;
+  lockBeforeDate?: string | null;
 };
 
 // --- Helper Functions ---
@@ -128,7 +129,7 @@ function buildTickMap(action: StudyAction, student?: Student) {
   return map;
 }
 
-export default function StudentView({ student, onUpdateAction, onLogout }: Props) {
+export default function StudentView({ student, onUpdateAction, onLogout, lockBeforeDate }: Props) {
   const inferredTaskMonth = useMemo(() => nextMonthKey(latestScoreMonthKey(student.scores)), [student.scores]);
 
   // State
@@ -192,7 +193,13 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
     });
   }, [student.scores, student.dashboardStats]);
 
+  const isDateLocked = (date: string) => {
+    if (!lockBeforeDate) return false;
+    return date < lockBeforeDate;
+  };
+
   const toggleDaily = async (action: StudyAction) => {
+    if (isDateLocked(selectedDate)) return; // blocked
     const tickMap = buildTickMap(action, student);
     const cur = !!tickMap.get(selectedDate);
     await onUpdateAction(action.id, selectedDate, !cur);
@@ -308,25 +315,39 @@ export default function StudentView({ student, onUpdateAction, onLogout }: Props
                     {dailyActions.map((a) => {
                       const tickMap = buildTickMap(a, student);
                       const done = !!tickMap.get(selectedDate);
+                      const locked = isDateLocked(selectedDate);
                       return (
                         <button
                           key={a.id}
-                          onClick={() => toggleDaily(a)}
-                          className={`group relative flex items-center justify-between p-5 rounded-2xl border transition-all duration-300 ${done
-                            ? "bg-gradient-to-r from-emerald-50 to-emerald-100/50 border-emerald-200 shadow-sm"
-                            : "bg-white border-slate-100 hover:border-indigo-200 hover:shadow-md hover:-translate-y-0.5"
+                          onClick={() => !locked && toggleDaily(a)}
+                          disabled={locked}
+                          className={`group relative flex items-center justify-between p-5 rounded-2xl border transition-all duration-300 ${
+                            locked
+                              ? (done ? "bg-emerald-50/50 border-slate-200 opacity-75 cursor-not-allowed" : "bg-slate-50 border-slate-200 opacity-60 cursor-not-allowed")
+                              : done
+                                ? "bg-gradient-to-r from-emerald-50 to-emerald-100/50 border-emerald-200 shadow-sm"
+                                : "bg-white border-slate-100 hover:border-indigo-200 hover:shadow-md hover:-translate-y-0.5"
                             }`}
                         >
                           <div className="flex items-center gap-4">
-                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500 ${done
-                              ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 rotate-0"
-                              : "bg-slate-100 text-slate-300 group-hover:bg-indigo-50 group-hover:text-indigo-400 rotate-12 group-hover:rotate-0"
+                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500 ${
+                              locked
+                                ? (done ? "bg-emerald-400 text-white" : "bg-slate-200 text-slate-400")
+                                : done
+                                  ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 rotate-0"
+                                  : "bg-slate-100 text-slate-300 group-hover:bg-indigo-50 group-hover:text-indigo-400 rotate-12 group-hover:rotate-0"
                               }`}>
-                              <Check size={24} strokeWidth={3} className={done ? "scale-100 opacity-100 transition-all" : "scale-50 opacity-0"} />
+                              {locked ? (
+                                done ? <Check size={24} strokeWidth={3} /> : <span className="text-base">🔒</span>
+                              ) : (
+                                <Check size={24} strokeWidth={3} className={done ? "scale-100 opacity-100 transition-all" : "scale-50 opacity-0"} />
+                              )}
                             </div>
                             <div className="text-left">
-                              <div className={`font-bold transition-colors ${done ? "text-slate-800" : "text-slate-600 group-hover:text-indigo-900"}`}>{a.description}</div>
-                              <div className={`text-xs font-medium mt-1 ${done ? "text-emerald-600" : "text-slate-400"}`}>{a.frequency}</div>
+                              <div className={`font-bold transition-colors ${done ? "text-slate-800" : locked ? "text-slate-500" : "text-slate-600 group-hover:text-indigo-900"}`}>{a.description}</div>
+                              <div className={`text-xs font-medium mt-1 ${done ? "text-emerald-600" : "text-slate-400"}`}>
+                                {locked ? "🔒 Đã khóa" : a.frequency}
+                              </div>
                             </div>
                           </div>
                           <div className="text-[10px] font-bold text-slate-300 bg-white/50 px-2 py-1 rounded-lg backdrop-blur-sm">

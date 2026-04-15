@@ -45,9 +45,20 @@ export const api = {
     return data.students || [];
   },
 
-  async getStudentMe(_mhs: string): Promise<Student & { stats?: StudentDashboardStats }> {
-    const data = await jfetch<{ student: Student; stats?: StudentDashboardStats }>("/api/student/me");
-    return { ...data.student, stats: data.stats };
+  async getStudentMe(_mhs: string): Promise<Student & { stats?: StudentDashboardStats; lockBeforeDate?: string | null }> {
+    const data = await jfetch<{ student: Student; stats?: StudentDashboardStats; lockBeforeDate?: string | null }>("/api/student/me");
+    return { ...data.student, stats: data.stats, lockBeforeDate: data.lockBeforeDate };
+  },
+
+  async getTickSettings(): Promise<{ lockBeforeDate: string | null }> {
+    return jfetch<{ ok: boolean; lockBeforeDate: string | null }>("/api/admin/tick-settings");
+  },
+
+  async setTickSettings(lockBeforeDate: string | null): Promise<void> {
+    await jfetch<{ ok: boolean }>("/api/admin/tick-settings", {
+      method: "POST",
+      body: JSON.stringify({ lockBeforeDate }),
+    });
   },
 
   async getStudentHistory(mhs: string): Promise<any[]> {

@@ -113,6 +113,7 @@ export default function DashboardApp() {
 
   // Student data
   const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
+  const [lockBeforeDate, setLockBeforeDate] = useState<string | null>(null);
 
 
 
@@ -142,6 +143,7 @@ export default function DashboardApp() {
         if (u.role === "STUDENT") {
           const data = await api.getStudentMe(u.username);
           setCurrentStudent(data);
+          setLockBeforeDate((data as any).lockBeforeDate || null);
         } else {
           // ✅ Truyền sheetName vào API
           const list = await api.getAllStudents();
@@ -178,6 +180,7 @@ export default function DashboardApp() {
     if (res.user.role === "STUDENT") {
       const data = await api.getStudentMe(res.user.username);
       setCurrentStudent(data);
+      setLockBeforeDate((data as any).lockBeforeDate || null);
     } else {
       const list = await api.getAllStudents();
       setStudents(list);
@@ -227,9 +230,13 @@ export default function DashboardApp() {
     try {
       await api.tick(user.username, actionId, date, completed);
       // ✅ Tick saved successfully — keep optimistic state (all ticks preserved)
-    } catch {
+    } catch (err: any) {
       // ❌ Tick failed — rollback to pre-tick state
       setCurrentStudent(backup);
+      // Show lock message if 403
+      if (err?.message?.includes("403") || err?.message?.includes("khóa")) {
+        alert("🔒 Ngày này đã bị khóa bởi Giáo viên/Admin. Bạn chỉ có thể xem lại.");
+      }
     }
   };
 
@@ -243,7 +250,7 @@ export default function DashboardApp() {
 
   if (view === "STUDENT") {
     return currentStudent ? (
-      <StudentView student={currentStudent} onLogout={onLogout} onUpdateAction={handleUpdateAction} />
+      <StudentView student={currentStudent} onLogout={onLogout} onUpdateAction={handleUpdateAction} lockBeforeDate={lockBeforeDate} />
     ) : (
       <div className="p-6 text-slate-600">Đang tải dữ liệu học sinh...</div>
     );
