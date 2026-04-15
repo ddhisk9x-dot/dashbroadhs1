@@ -168,8 +168,8 @@ export async function GET() {
       score: taskCountForMonth(s, mKey)
     }));
     mapped.sort((a, b) => b.score - a.score);
-    // Top 3
-    return mapped.slice(0, 3).map((item, idx) => ({ ...item, rank: idx + 1 }));
+    // Top 5
+    return mapped.slice(0, 5).map((item, idx) => ({ ...item, rank: idx + 1 }));
   };
 
   const leaderboardClassMap: Record<string, any[]> = {};

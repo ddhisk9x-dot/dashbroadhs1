@@ -93,7 +93,7 @@ export default function Leaderboard({ leaderboardClass, leaderboardGrade, curren
             </div>
 
             <div className="mt-4 text-[11px] text-slate-400 text-center">
-                * Top 3 học sinh chăm chỉ nhất tháng {month}.
+                * Top 5 học sinh chăm chỉ nhất tháng {month} (tổng lượt tick).
             </div>
         </div>
     );
