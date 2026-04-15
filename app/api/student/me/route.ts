@@ -80,44 +80,21 @@ export async function GET() {
     return scores[scores.length - 1];
   };
 
-  const taskCountForMonth = (st: any, monthKey: string) => {
-    const uniqueTickKeys = new Set<string>();
+  // ====== LEADERBOARD: Count ticks DIRECTLY from DB (allTicks) — bypass merge ======
+  // Group allTicks by MHS -> month -> count unique (date+actionId)
+  const tickCountByMhsMonth: Record<string, Record<string, number>> = {};
+  allTicks.forEach(t => {
+    if (!t.completed) return;
+    const m = String(t.tick_date || "").slice(0, 7);
+    if (!m) return;
+    const mhsKey = String(t.mhs).trim();
+    if (!tickCountByMhsMonth[mhsKey]) tickCountByMhsMonth[mhsKey] = {};
+    if (!tickCountByMhsMonth[mhsKey][m]) tickCountByMhsMonth[mhsKey][m] = 0;
+    tickCountByMhsMonth[mhsKey][m]++;
+  });
 
-    // Source 1: actionsByMonth[monthKey] -> ticks
-    const abm = st.actionsByMonth || {};
-    const actionsForMonth = Array.isArray(abm[monthKey]) ? abm[monthKey] : [];
-    actionsForMonth.forEach((a: any) => {
-      (a.ticks || []).forEach((t: any) => {
-        if (t.completed && String(t.date).startsWith(monthKey)) {
-          uniqueTickKeys.add(t.date + "-" + a.id);
-        }
-      });
-    });
-
-    // Source 2: activeActions -> ticks (fallback)
-    if (Array.isArray(st.activeActions)) {
-      st.activeActions.forEach((a: any) => {
-        (a.ticks || []).forEach((t: any) => {
-          if (t.completed && String(t.date).startsWith(monthKey)) {
-            uniqueTickKeys.add(t.date + "-" + a.id);
-          }
-        });
-      });
-    }
-
-    // Source 3: _ticksByActionId raw map (catches ID mismatch ticks)
-    if (st._ticksByActionId) {
-      const raw = st._ticksByActionId as Record<string, { date: string; completed: boolean }[]>;
-      Object.entries(raw).forEach(([actionId, ticks]) => {
-        ticks.forEach(t => {
-          if (t.completed && String(t.date).startsWith(monthKey)) {
-            uniqueTickKeys.add(t.date + "-" + actionId);
-          }
-        });
-      });
-    }
-
-    return uniqueTickKeys.size;
+  const getTickCount = (mhsKey: string, monthKey: string) => {
+    return tickCountByMhsMonth[mhsKey]?.[monthKey] || 0;
   };
 
   // Filter Lists
@@ -159,13 +136,13 @@ export async function GET() {
   });
   const gradeAvg = countGrade ? parseFloat((sumGrade / countGrade).toFixed(1)) : 0;
 
-  // Calc Leaderboard History
+  // Calc Leaderboard — directly from DB tick counts
   const calcRank = (list: any[], mKey: string) => {
     const mapped = list.map(s => ({
-      id: s.mhs,
+      id: String(s.mhs).trim(),
       name: s.name,
       class: s.class,
-      score: taskCountForMonth(s, mKey)
+      score: getTickCount(String(s.mhs).trim(), mKey)
     }));
     mapped.sort((a, b) => b.score - a.score);
     // Top 5
