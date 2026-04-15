@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getAppState, getTicksForStudent, mergeTicksIntoStudents, getTickSettings } from "@/lib/supabaseServer";
+import { getAppState, getTicksForAllStudents, mergeTicksIntoStudents, getTickSettings } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
@@ -12,20 +12,19 @@ export async function GET() {
 
   const mhs = String(session.mhs).trim();
 
-  // Load data separately for debugging
-  const [state, rawTicks, tickSettings] = await Promise.all([
+  // Load ALL students' ticks so leaderboard can count classmates correctly
+  const [state, allTicks, tickSettings] = await Promise.all([
     getAppState(),
-    getTicksForStudent(mhs),
+    getTicksForAllStudents(),
     getTickSettings(),
   ]);
-
-  const ticksWithMhs = rawTicks.map((t) => ({ ...t, mhs }));
 
   // Find raw student BEFORE merge
   const rawStudent = (state.students || []).find((s: any) => String(s.mhs).trim() === mhs);
 
   // Debug: collect action IDs from blob
   const debugBlobActionIds: Record<string, string[]> = {};
+  const rawTicks = allTicks.filter(t => t.mhs === mhs);
   if (rawStudent) {
     const abm = rawStudent.actionsByMonth || {};
     for (const mk of Object.keys(abm)) {
@@ -37,8 +36,8 @@ export async function GET() {
   // Debug: collect action IDs from ticks DB
   const debugTickActionIds = [...new Set(rawTicks.map(t => t.action_id))];
 
-  // Now merge
-  const merged = mergeTicksIntoStudents(state.students || [], ticksWithMhs);
+  // Merge ticks for ALL students (so leaderboard sees classmates' ticks)
+  const merged = mergeTicksIntoStudents(state.students || [], allTicks);
   const student = merged.find((s: any) => String(s.mhs).trim() === mhs);
 
   if (!student) return NextResponse.json({ error: "Not found", _debug: { mhs, rawTickCount: rawTicks.length, studentFound: false } }, { status: 404 });
@@ -82,27 +81,43 @@ export async function GET() {
   };
 
   const taskCountForMonth = (st: any, monthKey: string) => {
-    const uniqueTickDates = new Set<string>();
+    const uniqueTickKeys = new Set<string>();
 
-    let actions: any[] = [];
+    // Source 1: actionsByMonth[monthKey] -> ticks
     const abm = st.actionsByMonth || {};
-
-    // Priority: Specific month list -> Legacy activeActions
-    if (abm[monthKey] && Array.isArray(abm[monthKey]) && abm[monthKey].length > 0) {
-      actions = abm[monthKey];
-    } else if (Array.isArray(st.activeActions)) {
-      actions = st.activeActions;
-    }
-
-    actions.forEach(a => {
+    const actionsForMonth = Array.isArray(abm[monthKey]) ? abm[monthKey] : [];
+    actionsForMonth.forEach((a: any) => {
       (a.ticks || []).forEach((t: any) => {
         if (t.completed && String(t.date).startsWith(monthKey)) {
-          uniqueTickDates.add(t.date + "-" + a.id);
+          uniqueTickKeys.add(t.date + "-" + a.id);
         }
       });
     });
 
-    return uniqueTickDates.size;
+    // Source 2: activeActions -> ticks (fallback)
+    if (Array.isArray(st.activeActions)) {
+      st.activeActions.forEach((a: any) => {
+        (a.ticks || []).forEach((t: any) => {
+          if (t.completed && String(t.date).startsWith(monthKey)) {
+            uniqueTickKeys.add(t.date + "-" + a.id);
+          }
+        });
+      });
+    }
+
+    // Source 3: _ticksByActionId raw map (catches ID mismatch ticks)
+    if (st._ticksByActionId) {
+      const raw = st._ticksByActionId as Record<string, { date: string; completed: boolean }[]>;
+      Object.entries(raw).forEach(([actionId, ticks]) => {
+        ticks.forEach(t => {
+          if (t.completed && String(t.date).startsWith(monthKey)) {
+            uniqueTickKeys.add(t.date + "-" + actionId);
+          }
+        });
+      });
+    }
+
+    return uniqueTickKeys.size;
   };
 
   // Filter Lists
