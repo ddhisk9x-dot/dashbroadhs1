@@ -90,7 +90,9 @@ function normalizeActionsStorage(st: Student): Student {
 type SyncMode = "new_only" | "months";
 type SyncOpts = { mode?: SyncMode; selectedMonths?: string[]; sheetName?: string };
 
-async function fetchFromAppsScript(sheetName: string): Promise<any[][]> {
+type AppsScriptResult = { data: any[][]; displayRow1?: string[] };
+
+async function fetchFromAppsScript(sheetName: string): Promise<AppsScriptResult> {
   const baseUrl = process.env.APPS_SCRIPT_URL;
   if (!baseUrl) throw new Error("Missing env: APPS_SCRIPT_URL");
 
@@ -99,23 +101,22 @@ async function fetchFromAppsScript(sheetName: string): Promise<any[][]> {
   if (!resp.ok) throw new Error(`Apps Script fetch failed: ${resp.status}`);
 
   const json = await resp.json();
-  if (json.error) throw new Error(json.error); // Old logic: only throw if error prop exists
-  // if (!json.ok) throw new Error(json.error || "Apps Script returned error"); // This was causing sync to fail
+  if (json.error) throw new Error(json.error);
 
   if (!Array.isArray(json.data)) {
-    // Fallback: If json is directly the array? No, Apps Script returns {data: []}
-    // Check if json.data exists
     if (json.data === undefined) throw new Error("Apps Script response format unknown");
-    // If json.data is not array?
     throw new Error("Apps Script.data is not an array");
   }
 
-  return json.data;
+  return {
+    data: json.data,
+    displayRow1: Array.isArray(json.displayRow1) ? json.displayRow1 : undefined
+  };
 }
 
 // Parse various month formats including ISO dates and informal 'YYYY MM'
 function parseMonthValue(v: any): string {
-  const s = String(v || "").trim();
+  const s = String(v ?? "").trim();
 
   // Already in YYYY-MM format
   if (/^\d{4}-\d{2}$/.test(s)) return s;
@@ -124,7 +125,7 @@ function parseMonthValue(v: any): string {
   if (/^\d{4}\.\d{2}$/.test(s)) return s.replace(".", "-");
 
   // Format: YYYY-M or YYYY M (e.g. 2026-3 or 2026 3)
-  const informalMatch = s.match(/^(\d{4})[-\s](\d{1,2})$/);
+  const informalMatch = s.match(/^(\d{4})[-\s\/](\d{1,2})$/);
   if (informalMatch) {
     return `${informalMatch[1]}-${informalMatch[2].padStart(2, "0")}`;
   }
@@ -133,6 +134,23 @@ function parseMonthValue(v: any): string {
   const isoMatch = s.match(/^(\d{4})-(\d{2})-\d{2}T/);
   if (isoMatch) {
     return `${isoMatch[1]}-${isoMatch[2]}`;
+  }
+
+  // Google Sheets display format "4/1/2026" or "4/2026" (US date from interpreted cells)
+  const usDateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (usDateMatch) {
+    return `${usDateMatch[3]}-${usDateMatch[1].padStart(2, "0")}`;
+  }
+  const shortDateMatch = s.match(/^(\d{1,2})\/(\d{4})$/);
+  if (shortDateMatch) {
+    return `${shortDateMatch[2]}-${shortDateMatch[1].padStart(2, "0")}`;
+  }
+
+  // "Tháng 4" or "T4" patterns (Vietnamese month labels)
+  const thangMatch = s.match(/^(?:Th[áa]ng|T)\s*(\d{1,2})$/i);
+  if (thangMatch) {
+    // Can't determine year from this alone, skip
+    return "";
   }
 
   return "";
@@ -188,7 +206,9 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   }
 
   // 1) Fetch từ Apps Script
-  const rawData = await fetchFromAppsScript(sheetName);
+  const appsResult = await fetchFromAppsScript(sheetName);
+  const rawData = appsResult.data;
+  const displayRow1 = appsResult.displayRow1;
 
   if (!Array.isArray(rawData) || rawData.length === 0) {
     throw new Error(`Apps Script returned NO DATA for sheet "${sheetName}". Please check if the sheet exists and has data.`);
@@ -229,9 +249,9 @@ async function doSyncFromSheet(opts?: SyncOpts) {
     });
 
     const allMonths = new Set<string>();
-    // Scan first few rows to find month keys "YYYY-MM SUBJECT"
-    // Now we can safely use \d{4}-\d{2} because keys are normalized
-    studentsData.slice(0, 15).forEach((st: any) => {
+    // Scan ALL students to find month keys "YYYY-MM SUBJECT"
+    // (Previously only scanned first 15 — missed months if early students had no data)
+    studentsData.forEach((st: any) => {
       Object.keys(st).forEach(k => {
         const match = k.match(/^(\d{4}-\d{2})/);
         if (match) allMonths.add(match[1]);
@@ -280,7 +300,9 @@ async function doSyncFromSheet(opts?: SyncOpts) {
   } else {
     // --- 2D ARRAY FORMAT (Standard / Old Script) ---
     const rows = rawData;
-    const monthRow = rows[0] ?? [];
+    // Use displayRow1 (getDisplayValues) if available — it preserves "2026-4" as text
+    // instead of getValues() which turns it into 2022 (arithmetic).
+    const monthRow = (displayRow1 && displayRow1.length > 0) ? displayRow1 : (rows[0] ?? []);
     const headerRow = rows[1] ?? [];
     const header2 = headerRow.map(normHeader);
 

@@ -26,19 +26,27 @@ export async function GET() {
 
         const rows = json.data;
         const monthRow = rows[0] || [];
-        const headerRow = rows[1] || [];
+        const displayRow1 = Array.isArray(json.displayRow1) ? json.displayRow1 : null;
 
-        // Extract unique months from row 1
-        const months = monthRow
-            .map((v: any, i: number) => ({ index: i, value: String(v || "").trim() }))
-            .filter((m: any) => m.value);
+        // Extract unique months from row 1 (raw values - might be wrong due to arithmetic)
+        const monthsRaw = monthRow
+            .map((v: any, i: number) => ({ index: i, rawValue: v, asString: String(v || "").trim() }))
+            .filter((m: any) => m.asString);
+
+        // Extract months from displayRow1 (text values - correct)
+        const monthsDisplay = displayRow1
+            ? displayRow1
+                .map((v: string, i: number) => ({ index: i, value: String(v || "").trim() }))
+                .filter((m: any) => m.value)
+            : null;
 
         return NextResponse.json({
             ok: true,
             totalRows: rows.length,
-            monthRow: months,
-            headerRow: headerRow.slice(0, 20),
-            sampleDataRow: rows[2] ? rows[2].slice(0, 20) : null,
+            monthRowRaw: monthsRaw.slice(-10), // Last 10 for debugging
+            monthRowDisplay: monthsDisplay ? monthsDisplay.slice(-10) : "NOT AVAILABLE - Update Apps Script",
+            headerRow: rows[1] ? (rows[1] as any[]).slice(0, 20) : null,
+            sampleDataRow: rows[2] ? (rows[2] as any[]).slice(0, 20) : null,
         });
     } catch (e: any) {
         return NextResponse.json({ ok: false, error: e?.message || "Failed" });

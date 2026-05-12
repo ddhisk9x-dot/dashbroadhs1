@@ -99,7 +99,7 @@
         "transform": "lodash/{{member}}"
       }
     },
-    "outputFileTracingRoot": "C:\\Users\\Duong Hieu\\.gemini\\antigravity\\scratch\\dashbroadhs1",
+    "outputFileTracingRoot": "C:\\Users\\Duong Hieu\\.gemini\\antigravity\\scratch",
     "experimental": {
       "useSkewCookie": false,
       "cacheLife": {
@@ -158,7 +158,7 @@
       "middlewarePrefetch": "flexible",
       "optimisticClientCache": true,
       "manualClientBasePath": false,
-      "cpus": 11,
+      "cpus": 15,
       "memoryBasedWorkersCount": false,
       "imgOptConcurrency": null,
       "imgOptTimeoutInSeconds": 7,
@@ -289,11 +289,11 @@
     "bundlePagesRouterDependencies": false,
     "configFileName": "next.config.js",
     "turbopack": {
-      "root": "C:\\Users\\Duong Hieu\\.gemini\\antigravity\\scratch\\dashbroadhs1"
+      "root": "C:\\Users\\Duong Hieu\\.gemini\\antigravity\\scratch"
     }
   },
   "appDir": "C:\\Users\\Duong Hieu\\.gemini\\antigravity\\scratch\\dashbroadhs1",
-  "relativeAppDir": "",
+  "relativeAppDir": "dashbroadhs1",
   "files": [
     ".next\\routes-manifest.json",
     ".next\\server\\pages-manifest.json",
